@@ -1,5 +1,11 @@
 import { test, expect } from 'vitest'
-import { frameCount, sampleTimes, clampPlayhead, budget } from '../../src/lib/video/clip'
+import {
+  frameCount,
+  sampleTimes,
+  clampPlayhead,
+  budget,
+  playbackFps,
+} from '../../src/lib/video/clip'
 
 test('frameCount rounds (out-in)*fps and is at least 1', () => {
   expect(frameCount(1, 7, 10)).toBe(60)
@@ -17,6 +23,13 @@ test('clampPlayhead keeps the head inside the trim window', () => {
   expect(clampPlayhead(5, 1, 3)).toBe(3)
   expect(clampPlayhead(0, 1, 3)).toBe(1)
   expect(clampPlayhead(2, 1, 3)).toBe(2)
+})
+
+test('playbackFps scales the capture fps by speed (>= 1)', () => {
+  expect(playbackFps(15, 1)).toBe(15)
+  expect(playbackFps(15, 2)).toBe(30) // 2x plays twice as fast
+  expect(playbackFps(10, 0.5)).toBe(5) // half speed
+  expect(playbackFps(5, 0.5)).toBe(3) // rounds, never below 1
 })
 
 test('budget flags over/near/ok against free space', () => {

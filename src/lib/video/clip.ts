@@ -19,6 +19,12 @@ export function clampPlayhead(t: number, inSec: number, outSec: number): number 
   return Math.max(inSec, Math.min(outSec, t))
 }
 
+/** Playback frame rate the badge plays a clip at: the capture fps scaled by speed.
+ *  Same sampled frames, just declared to play faster/slower. */
+export function playbackFps(fps: number, speed: number): number {
+  return Math.max(1, Math.round(fps * speed))
+}
+
 type BudgetLevel = 'ok' | 'warn' | 'over'
 export interface Budget {
   level: BudgetLevel

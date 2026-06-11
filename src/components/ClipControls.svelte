@@ -23,6 +23,15 @@
   const span = $derived(Math.max(0, clip.outSec - clip.inSec))
   const cur = $derived(Math.max(0, clip.playhead - clip.inSec))
 
+  // Continuous sliders that snap the dragged value to the nearest preset stop.
+  const FPS_MIN = FPS_PRESETS[0]
+  const FPS_MAX = FPS_PRESETS[FPS_PRESETS.length - 1]
+  const SPEED_MIN = SPEED_PRESETS[0]
+  const SPEED_MAX = SPEED_PRESETS[SPEED_PRESETS.length - 1]
+  const snap = (stops: readonly number[], v: number): number =>
+    stops.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a))
+  const pct = (v: number, min: number, max: number) => ((v - min) / (max - min)) * 100
+
   const b = $derived(estimatedKB != null && freeKB != null ? budget(estimatedKB, freeKB) : null)
   const budgetColor = $derived(
     b?.level === 'over'
@@ -103,12 +112,6 @@
         /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg
       >Loop
     </button>
-    <div class="spacer"></div>
-    <div class="speeds">
-      {#each SPEED_PRESETS as sp}
-        <button class:on={clip.speed === sp} onclick={() => session.setSpeed(sp)}>{sp}×</button>
-      {/each}
-    </div>
   </div>
 
   <VideoTimeline {session} {clip} {strip} />
@@ -126,15 +129,44 @@
     </div>
   </div>
 
-  <!-- frame rate -->
+  <!-- frame rate: continuous, snaps to the preset stops -->
   <div class="rowhead">
     <span>Frame rate</span><span class="mono">{clip.fps} fps</span>
   </div>
-  <div class="fps">
+  <input
+    class="snap"
+    data-testid="fps-chip"
+    type="range"
+    min={FPS_MIN}
+    max={FPS_MAX}
+    step="1"
+    value={clip.fps}
+    oninput={(e) => session.setFps(snap(FPS_PRESETS, +e.currentTarget.value))}
+    aria-label="Frame rate"
+  />
+  <div class="ticks">
     {#each FPS_PRESETS as n}
-      <button data-testid="fps-chip" class:on={clip.fps === n} onclick={() => session.setFps(n)}
-        >{n}</button
-      >
+      <span style="left:{pct(n, FPS_MIN, FPS_MAX)}%" class:on={clip.fps === n}>{n}</span>
+    {/each}
+  </div>
+
+  <!-- speed: continuous, snaps to the preset stops; changes the badge playback rate -->
+  <div class="rowhead">
+    <span>Speed</span><span class="mono">{clip.speed}×</span>
+  </div>
+  <input
+    class="snap"
+    type="range"
+    min={SPEED_MIN}
+    max={SPEED_MAX}
+    step="0.05"
+    value={clip.speed}
+    oninput={(e) => session.setSpeed(snap(SPEED_PRESETS, +e.currentTarget.value))}
+    aria-label="Speed"
+  />
+  <div class="ticks">
+    {#each SPEED_PRESETS as sp}
+      <span style="left:{pct(sp, SPEED_MIN, SPEED_MAX)}%" class:on={clip.speed === sp}>{sp}×</span>
     {/each}
   </div>
 
@@ -247,34 +279,26 @@
     background: var(--p-primary-soft);
     color: var(--p-primary-ink);
   }
-  .spacer {
-    flex: 1;
-  }
-  .speeds {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    background: var(--p-paper);
-    border: 1px solid var(--p-divider);
-    border-radius: 999px;
-    padding: 2px;
-  }
-  .speeds button {
-    height: 24px;
-    min-width: 34px;
-    padding: 0 7px;
-    border: 0;
-    border-radius: 999px;
+  .snap {
+    width: 100%;
+    height: 16px;
     cursor: pointer;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 800;
-    background: transparent;
-    color: var(--p-text-muted);
   }
-  .speeds button.on {
-    background: var(--p-primary);
-    color: var(--p-on-primary);
+  .ticks {
+    position: relative;
+    height: 13px;
+    margin-top: 3px;
+  }
+  .ticks span {
+    position: absolute;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--p-text-muted);
+    white-space: nowrap;
+  }
+  .ticks span.on {
+    color: var(--p-primary-ink);
+    font-weight: 800;
   }
   .readouts {
     display: flex;
@@ -321,27 +345,6 @@
     font-size: 11px;
     font-weight: 400;
     color: var(--p-text-muted);
-  }
-  .fps {
-    display: flex;
-    gap: 6px;
-  }
-  .fps button {
-    flex: 1;
-    height: 34px;
-    border-radius: 9px;
-    cursor: pointer;
-    font: inherit;
-    font-size: 12.5px;
-    font-weight: 800;
-    border: 1px solid var(--p-divider);
-    background: var(--p-paper);
-    color: var(--p-text);
-  }
-  .fps button.on {
-    border-color: var(--p-primary);
-    background: var(--p-primary);
-    color: var(--p-on-primary);
   }
   .budget {
     margin-top: 16px;

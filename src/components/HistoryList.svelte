@@ -3,10 +3,14 @@
   import Button from './Button.svelte'
 
   // Thumbnail URLs, revoked on change/unmount. Must not read `urls` (would self-trigger).
+  // Video items show a saved snapshot, never the video blob (which a <img> can't render).
   let urls = $state<Record<string, string>>({})
   $effect(() => {
     const next: Record<string, string> = {}
-    for (const it of $historyItems) next[it.id] = URL.createObjectURL(it.blob)
+    for (const it of $historyItems) {
+      const src = it.media === 'video' ? it.thumbnail : it.blob
+      if (src) next[it.id] = URL.createObjectURL(src)
+    }
     urls = next
     return () => {
       for (const u of Object.values(next)) URL.revokeObjectURL(u)
@@ -23,6 +27,13 @@
         <div class="row" data-testid="history-item">
           <div class="thumb" aria-hidden="true">
             {#if urls[it.id]}<img src={urls[it.id]} alt="" />{/if}
+            {#if it.media === 'video'}
+              <span class="play">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"
+                  ><path d="M8 5v14l11-7z" /></svg
+                >
+              </span>
+            {/if}
           </div>
           <div class="meta">
             <div class="name">{it.name}</div>
@@ -84,6 +95,7 @@
     min-height: 48px;
   }
   .thumb {
+    position: relative;
     width: 34px;
     height: 34px;
     border-radius: 50%;
@@ -97,6 +109,19 @@
     height: 100%;
     object-fit: cover;
     display: block;
+  }
+  .play {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--p-tooltip-bg);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 0 0 2px var(--p-paper);
   }
   .meta {
     flex: 1;

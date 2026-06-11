@@ -92,6 +92,8 @@ export class EditorSession {
   private uploaded = false
   private badgeName: string | null = null
   private badgeDeviceId: string | null = null
+  /** Snapshot JPEG for video items (the badge can't be shown directly). */
+  private thumbnailBlob: Blob | null = null
 
   private dragAnchor: { x: number; y: number; px: number; py: number } | null = null
   private autosaveTimer: ReturnType<typeof setTimeout> | undefined
@@ -118,6 +120,7 @@ export class EditorSession {
     this.uploaded = false
     this.badgeName = null
     this.badgeDeviceId = null
+    this.thumbnailBlob = null
     // A real video is a clip immediately. An animated image (gif/webp) starts as
     // an image and upgrades to a clip only once we confirm it has >1 frame, so a
     // static gif never flickers into clip mode.
@@ -193,11 +196,32 @@ export class EditorSession {
         speed: 1,
         playhead: inSec,
         loop: true,
-        playing: false,
+        playing: true, // autoplay the clip when it loads
         frames: frameCount(inSec, outSec, fps),
       },
     })
+    void this.genThumb(file, inSec)
     this.schedule()
+  }
+
+  /** Render the frame at `atSec` to a snapshot JPEG, for the recent-list preview. */
+  private async genThumb(file: File, atSec: number): Promise<void> {
+    try {
+      const src = await openFrameSource(file)
+      try {
+        const bmp = await src.frameAt(atSec)
+        const jpeg = await renderBitmapJpeg(bmp, this.transform(), 0.7)
+        bmp.close()
+        if (this.s.file === file) {
+          this.thumbnailBlob = new Blob([jpeg as BlobPart], { type: 'image/jpeg' })
+          void this.persist(this.uploaded) // re-save the draft with its snapshot
+        }
+      } finally {
+        src.close()
+      }
+    } catch {
+      // no snapshot; the recent list falls back to a placeholder
+    }
   }
 
   /** Reopen a saved history item into the editor. */
@@ -210,6 +234,7 @@ export class EditorSession {
     this.uploaded = item.uploaded
     this.badgeName = item.badgeName ?? null
     this.badgeDeviceId = item.badgeDeviceId ?? null
+    this.thumbnailBlob = item.thumbnail ?? null
     const video = item.media === 'video'
     this.commit({
       file,
@@ -426,7 +451,7 @@ export class EditorSession {
       res = await encodeClip(
         file,
         this.transform(),
-        { inSec: clip.inSec, outSec: clip.outSec, fps: clip.fps },
+        { inSec: clip.inSec, outSec: clip.outSec, fps: clip.fps, speed: clip.speed },
         this.s.quality,
         (p) => this.commit({ preparing: p }),
       )
@@ -436,10 +461,17 @@ export class EditorSession {
       return
     }
     this.commit({ preparing: null })
+    // Keep the first encoded frame as the clip's snapshot (the badge can't
+    // play back here, so the success screen + history show this still).
+    this.thumbnailBlob = new Blob([res.thumbnail as BlobPart], { type: 'image/jpeg' })
     try {
       this.badgeDeviceId = get(deviceId)
       this.badgeName = await upload(res.bytes, { ext: 'avi' })
-      this.commit({ success: true })
+      this.revokeSent()
+      this.commit({
+        sentUrl: URL.createObjectURL(this.thumbnailBlob),
+        success: true,
+      })
       await this.persist(true)
     } catch {
       // upload failures surface via the badge error store
@@ -522,6 +554,7 @@ export class EditorSession {
         this.s.media === 'video' && clip
           ? { inSec: clip.inSec, outSec: clip.outSec, fps: clip.fps }
           : undefined,
+      thumbnail: this.s.media === 'video' ? (this.thumbnailBlob ?? undefined) : undefined,
       badgeName: this.badgeName ?? undefined,
       badgeDeviceId: this.badgeDeviceId ?? undefined,
       createdAt: this.createdAt || Date.now(),

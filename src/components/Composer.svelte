@@ -199,6 +199,7 @@
           aria-label="Size"
         />
         <span class="pm plus">+</span>
+        <Button variant="ghost" size="sm" onclick={() => session.fit()}>Fit</Button>
       </div>
       <div class="row-label spaced">
         <span>Rotation</span><span class="mono">{Math.round($editor.rot)}°</span>
@@ -220,11 +221,6 @@
           aria-label="Reset rotation"
           onclick={() => session.resetRotation()}>↺</Button
         >
-      </div>
-
-      <div class="btns spaced-top">
-        <Button variant="ghost" block onclick={() => session.fit()}>Fit</Button>
-        <Button variant="ghost" block onclick={() => session.reset()}>Reset all</Button>
       </div>
 
       <div class="row-label spaced">
@@ -263,23 +259,32 @@
         <p class="err">{$error}</p>
       {/if}
 
-      <div class="send-wrap">
+      <div class="send-wrap send-row">
+        <div class="send-grow">
+          <Button
+            variant="primary"
+            size="lg"
+            block
+            data-testid="upload-button"
+            onclick={() => session.send()}
+            disabled={$editor.busy || tooBig || !connected}
+          >
+            {$editor.busy
+              ? 'Sending…'
+              : tooBig
+                ? "Won't fit, lower the quality"
+                : isVideo
+                  ? 'Send clip to badge'
+                  : 'Send to badge'}
+          </Button>
+        </div>
         <Button
-          variant="primary"
+          variant="ghost"
           size="lg"
-          block
-          data-testid="upload-button"
-          onclick={() => session.send()}
-          disabled={$editor.busy || tooBig || !connected}
+          title="Reset all edits"
+          onclick={() => session.reset()}
+          disabled={$editor.busy}>Reset</Button
         >
-          {$editor.busy
-            ? 'Sending…'
-            : tooBig
-              ? "Won't fit, lower the quality"
-              : isVideo
-                ? 'Send clip to badge'
-                : 'Send to badge'}
-        </Button>
       </div>
       {#if !connected}
         <p class="gate-hint">Connect a badge to send. Your edits are saved as a draft.</p>
@@ -505,15 +510,6 @@
     height: 16px;
     cursor: pointer;
   }
-  .btns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 14px;
-  }
-  .btns.spaced-top {
-    margin-top: 8px;
-  }
   .gate-hint {
     margin-top: 10px;
     font-size: 11.5px;
@@ -546,6 +542,14 @@
   }
   .send-wrap {
     margin-top: 22px;
+  }
+  .send-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .send-grow {
+    flex: 1;
   }
 
   /* overlays */

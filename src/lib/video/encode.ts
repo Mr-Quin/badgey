@@ -1,6 +1,6 @@
 import type { Transform } from '../editor'
 import { renderBitmapJpeg } from '../editor'
-import { sampleTimes } from './clip'
+import { sampleTimes, playbackFps } from './clip'
 import { muxMjpegAvi } from './avi'
 import { openFrameSource } from './frames'
 import { OUT_DIM } from './dims'
@@ -9,6 +9,8 @@ export interface ClipParams {
   inSec: number
   outSec: number
   fps: number
+  /** Playback speed multiplier (e.g. 2 = plays twice as fast on the badge). */
+  speed?: number
 }
 
 export interface EncodeResult {
@@ -39,7 +41,10 @@ export async function encodeClip(
       }
       onProgress?.((i + 1) / times.length)
     }
-    const bytes = muxMjpegAvi(jpegs, { width: OUT_DIM, height: OUT_DIM, fps: clip.fps })
+    // Frames are sampled at the capture fps; speed only changes the playback
+    // rate the badge plays them back at (same frames, faster/slower).
+    const playFps = playbackFps(clip.fps, clip.speed ?? 1)
+    const bytes = muxMjpegAvi(jpegs, { width: OUT_DIM, height: OUT_DIM, fps: playFps })
     return { bytes, frames: jpegs.length, thumbnail: jpegs[0] }
   } finally {
     src.close()

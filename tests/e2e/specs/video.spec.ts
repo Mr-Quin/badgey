@@ -36,23 +36,33 @@ test('uploads a video clip as an .avi file', async ({ page }) => {
     )
     .toBe(true)
 
-  // Playback advances the playhead position.
+  // The clip autoplays, so the playhead advances on its own.
   const scrubLeft = () =>
     page.evaluate(() => {
       const tab = document.querySelector('[title="Drag to set the playback position"]')
       return (tab as HTMLElement | null)?.style.left ?? ''
     })
   const before = await scrubLeft()
-  await page.getByTestId('play-toggle').click()
   await expect.poll(scrubLeft).not.toBe(before)
 
   await badge.upload()
   await badge.waitForUploadComplete()
 
+  // The success screen shows a snapshot of the clip (not a blank disc).
+  await expect(page.locator('[data-testid="upload-success"] img')).toBeVisible()
+
   // The badge gallery lists the new clip with an .avi extension.
   await expect
     .poll(async () => (await badge.fileNames()).some((n) => n.endsWith('.avi')))
     .toBe(true)
+
+  // Recent shows the clip as a still snapshot with a video badge (not a broken video).
+  const clipRow = page
+    .getByTestId('history-item')
+    .filter({ has: page.locator('.play') })
+    .first()
+  await expect(clipRow).toBeVisible()
+  await expect(clipRow.locator('img')).toBeVisible()
 })
 
 test('an animated gif is treated as a video clip', async ({ page }) => {
