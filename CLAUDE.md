@@ -29,6 +29,7 @@ Run `bun run check` and the tests before claiming anything works.
 
 ## Conventions
 
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`, with an optional scope (e.g. `feat(editor): …`).
 - Keep this repo a clean "just an app" surface: **no reverse-engineering, protocol, or provenance details** in docs or comments.
 - e2e relies on stable `data-testid`s (`connect-button`, `upload-button`, `image-input`, `image-preview`, `free-space`, `file-row`, `file-delete`, `file-delete-confirm`, `refresh-button`, `connection-status`, `upload-progress`, `upload-success`, `size-estimate`, `history-item`, `history-restore`). Preserve/extend them. `connection-status` and `free-space` are visually-hidden hooks behind the real UI.
 - Tests run against `FakeBadge` (`VITE_TRANSPORT=fake`); keep them deterministic and lean.
