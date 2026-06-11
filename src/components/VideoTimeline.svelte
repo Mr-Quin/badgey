@@ -88,7 +88,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="handle out"
-      style="left:{outPct}%"
+      style="left:calc({outPct}% - 14px)"
       title="Trim end"
       onpointerdown={(e) => begin('out', e, false)}
     >
@@ -193,7 +193,6 @@
     touch-action: none;
   }
   .handle.in {
-    margin-left: -14px;
     border-radius: 4px 0 0 4px;
   }
   .handle.out {
