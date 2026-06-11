@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bezel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#74747c" />
+      <stop offset="1" stop-color="#26262b" />
+    </linearGradient>
+    <linearGradient id="screen" x1="0.25" y1="0" x2="0.75" y2="1">
+      <stop offset="0" stop-color="#3a3340" />
+      <stop offset="1" stop-color="#0e0b12" />
+    </linearGradient>
+    <clipPath id="screenClip"><circle cx="32" cy="32" r="26" /></clipPath>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="url(#bezel)" />
+  <circle cx="32" cy="32" r="26" fill="url(#screen)" />
+  <g clip-path="url(#screenClip)">
+    <rect x="-8" y="15.3" width="80" height="6.8" rx="3" fill="#ffffff" fill-opacity="0.62"
+      transform="rotate(-28 32 18.7)" />
+    <rect x="-8" y="26.9" width="80" height="3.1" rx="2" fill="#ffffff" fill-opacity="0.3"
+      transform="rotate(-28 32 28.4)" />
+  </g>
+</svg>

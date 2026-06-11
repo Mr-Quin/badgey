@@ -1,0 +1,319 @@
+/* ────────────────────────────────────────────────────────────────────
+ *  Sakura Design System — colors + type tokens
+ *  Drop this into any project to inherit the full token set.
+ *  Toggle dark mode by adding `data-theme="dark"` to <html> or <body>.
+ *  ──────────────────────────────────────────────────────────────────── */
+
+/* === Webfonts =====================================================
+ * Single sans family — Plus Jakarta Sans (Noto Sans SC for CJK fallback).
+ * Both shipped as variable fonts; one file per family covers every weight.
+ * For offline use, self-host the .woff2 from Google Fonts.
+ * ================================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800&family=Noto+Sans+SC:wght@100..900&display=swap');
+
+:root {
+  /* ── Surfaces (3 levels of warmth — bg sits behind paper sits under paperAlt) ── */
+  --p-bg: #fff8f5;
+  --p-paper: #ffffff;
+  --p-paper-alt: #fbefea;
+
+  /* ── Brand · Primary (coral) ── */
+  --p-primary: #e86a8e;
+  --p-primary-hover: #d9567c;
+  --p-primary-soft: #fce5ec;
+  --p-primary-ink: #b14267;
+  --p-on-primary: #ffffff;
+
+  /* ── Brand · Secondary (lavender) ── */
+  --p-secondary: #7a6ce0;
+  --p-secondary-hover: #6957d3;
+  --p-secondary-soft: #e7e3fc;
+  --p-secondary-ink: #4a3cb8;
+  --p-on-secondary: #ffffff;
+
+  /* ── Severities (main / soft / ink — mirrors MUI Alert pattern) ── */
+  --p-success: #2fae78;
+  --p-success-soft: #d6f0e4;
+  --p-success-ink: #1e7e58;
+
+  --p-warning: #e9a23b;
+  --p-warning-soft: #fbe9cc;
+  --p-warning-ink: #9a6a1e;
+
+  --p-info: #5aa7e8;
+  --p-info-soft: #e0eef9;
+  --p-info-ink: #2f6faf;
+
+  --p-danger: #dc2626;
+  --p-danger-soft: #fee2e2;
+  --p-danger-ink: #991b1b;
+
+  /* ── Text ── */
+  --p-text: #2a1b24;
+  --p-text-muted: #7a6a74;
+  --p-text-disabled: rgba(42, 27, 36, 0.4);
+
+  /* ── Edges ── */
+  --p-divider: rgba(42, 27, 36, 0.09);
+
+  /* ── Action states ── */
+  --p-action-hover: rgba(42, 27, 36, 0.04);
+  --p-action-selected: #fce5ec; /* = primary-soft */
+  --p-action-active: rgba(232, 106, 142, 0.08);
+  --p-action-focus: rgba(232, 106, 142, 0.2);
+
+  /* ── Inverted floating surfaces (tooltips, snackbars) ── */
+  --p-tooltip-bg: #2a1b24;
+  --p-tooltip-fg: #ffffff;
+
+  /* ── Legacy aliases (kept for compat) ── */
+  --p-chip: #fce5ec;
+  --p-accent: #f7c8b8;
+
+  /* ── Typography ── */
+  --p-font: 'Plus Jakarta Sans', 'Noto Sans SC', system-ui, sans-serif;
+  --p-display: 'Plus Jakarta Sans', 'Noto Sans SC', system-ui, sans-serif;
+  --p-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ── Type scale (px / rem at 16px base) ── */
+  --p-fs-display: 0.9375rem; /* 15 — TabPane page title (h4) */
+  --p-fs-h1: 1.375rem; /* 22 */
+  --p-fs-h2: 1.125rem; /* 18 */
+  --p-fs-h3: 1rem; /* 16 */
+  --p-fs-h4: 0.9375rem; /* 15 */
+  --p-fs-h5: 0.875rem; /* 14 — AppBar title */
+  --p-fs-h6: 0.8125rem; /* 13 */
+  --p-fs-body1: 0.875rem; /* 14 */
+  --p-fs-body2: 0.8125rem; /* 13 — DEFAULT body */
+  --p-fs-caption: 0.75rem; /* 12 */
+  --p-fs-overline: 0.6875rem; /* 11 — uppercase eyebrow */
+  --p-fs-meta: 0.625rem; /* 10 — tertiary, count badges */
+  --p-fs-button: 0.75rem; /* 12 */
+
+  /* ── Shape ── */
+  --p-radius: 12px; /* cards, dialogs, popup outer */
+  --p-radius-sm: 8px; /* buttons, inputs, list rows */
+  --p-radius-lg: 18px; /* popup root */
+
+  /* ── Density (popup is dense; tune up for general web UIs) ── */
+  --p-row-py: 6px;
+  --p-row-px: 8px;
+  --p-section-px: 10px;
+  --p-section-py: 8px;
+  --p-control-h-xs: 24px;
+  --p-control-h-sm: 28px;
+  --p-control-h: 32px;
+  --p-input-h-dense: 30px;
+  --p-input-h: 36px;
+}
+
+/* ──────────────────────────────────────────────────────────────────── */
+/*  Dark mode — flip by setting data-theme="dark" on <html> or <body>. */
+/*  Same token names; values swap. Two themes are siblings, not derived. */
+/* ──────────────────────────────────────────────────────────────────── */
+[data-theme='dark'] {
+  --p-bg: #15101a;
+  --p-paper: #1d1623;
+  --p-paper-alt: #241c2c;
+
+  --p-primary: #f48fb1;
+  --p-primary-hover: #f06292;
+  --p-primary-soft: rgba(244, 143, 177, 0.18);
+  --p-primary-ink: #f8bbd0;
+  --p-on-primary: #2a0f1a;
+
+  --p-secondary: #b39cf5;
+  --p-secondary-hover: #9f86f0;
+  --p-secondary-soft: rgba(179, 156, 245, 0.18);
+  --p-secondary-ink: #c8b6f7;
+  --p-on-secondary: #1a1330;
+
+  --p-success: #6dd7a6;
+  --p-success-soft: rgba(109, 215, 166, 0.16);
+  --p-success-ink: #9ceac4;
+  --p-warning: #f5c26b;
+  --p-warning-soft: rgba(245, 194, 107, 0.16);
+  --p-warning-ink: #f5d699;
+  --p-info: #7fc0f0;
+  --p-info-soft: rgba(127, 192, 240, 0.16);
+  --p-info-ink: #a8d4f5;
+  --p-danger: #f87171;
+  --p-danger-soft: rgba(248, 113, 113, 0.18);
+  --p-danger-ink: #fca5a5;
+
+  --p-text: #f6e8ee;
+  --p-text-muted: #a89aa6;
+  --p-text-disabled: rgba(246, 232, 238, 0.4);
+  --p-divider: rgba(246, 232, 238, 0.09);
+
+  --p-action-hover: rgba(246, 232, 238, 0.05);
+  --p-action-selected: rgba(244, 143, 177, 0.18);
+  --p-action-active: rgba(244, 143, 177, 0.1);
+  --p-action-focus: rgba(244, 143, 177, 0.28);
+
+  --p-tooltip-bg: #3a2e3a;
+  --p-tooltip-fg: #f6e8ee;
+
+  --p-chip: rgba(244, 143, 177, 0.18);
+  --p-accent: #e9a6b4;
+}
+
+/* Respect user preference automatically (only when no explicit attr set) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --p-bg: #15101a;
+    --p-paper: #1d1623;
+    --p-paper-alt: #241c2c;
+
+    --p-primary: #f48fb1;
+    --p-primary-hover: #f06292;
+    --p-primary-soft: rgba(244, 143, 177, 0.18);
+    --p-primary-ink: #f8bbd0;
+    --p-on-primary: #2a0f1a;
+
+    --p-secondary: #b39cf5;
+    --p-secondary-hover: #9f86f0;
+    --p-secondary-soft: rgba(179, 156, 245, 0.18);
+    --p-secondary-ink: #c8b6f7;
+    --p-on-secondary: #1a1330;
+
+    --p-success: #6dd7a6;
+    --p-success-soft: rgba(109, 215, 166, 0.16);
+    --p-success-ink: #9ceac4;
+    --p-warning: #f5c26b;
+    --p-warning-soft: rgba(245, 194, 107, 0.16);
+    --p-warning-ink: #f5d699;
+    --p-info: #7fc0f0;
+    --p-info-soft: rgba(127, 192, 240, 0.16);
+    --p-info-ink: #a8d4f5;
+    --p-danger: #f87171;
+    --p-danger-soft: rgba(248, 113, 113, 0.18);
+    --p-danger-ink: #fca5a5;
+
+    --p-text: #f6e8ee;
+    --p-text-muted: #a89aa6;
+    --p-text-disabled: rgba(246, 232, 238, 0.4);
+    --p-divider: rgba(246, 232, 238, 0.09);
+
+    --p-action-hover: rgba(246, 232, 238, 0.05);
+    --p-action-selected: rgba(244, 143, 177, 0.18);
+    --p-action-active: rgba(244, 143, 177, 0.1);
+    --p-action-focus: rgba(244, 143, 177, 0.28);
+
+    --p-tooltip-bg: #3a2e3a;
+    --p-tooltip-fg: #f6e8ee;
+
+    --p-chip: rgba(244, 143, 177, 0.18);
+    --p-accent: #e9a6b4;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────── */
+/*  Base type — semantic element styles                                 */
+/* ──────────────────────────────────────────────────────────────────── */
+
+html,
+body {
+  background: var(--p-bg);
+  color: var(--p-text);
+  font-family: var(--p-font);
+  font-size: var(
+    --p-fs-body2
+  ); /* 13px is the dense default. Override to 14 (body1) for general web. */
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1 {
+  font-size: var(--p-fs-h1);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+}
+h2 {
+  font-size: var(--p-fs-h2);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+}
+h3 {
+  font-size: var(--p-fs-h3);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+}
+h4 {
+  font-size: var(--p-fs-h4);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+}
+h5 {
+  font-size: var(--p-fs-h5);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+}
+h6 {
+  font-size: var(--p-fs-h6);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+small {
+  font-size: var(--p-fs-caption);
+  color: var(--p-text-muted);
+}
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--p-mono);
+}
+hr {
+  border: 0;
+  height: 1px;
+  background: var(--p-divider);
+  margin: 8px 0;
+}
+a {
+  color: var(--p-primary);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--p-primary-hover);
+  text-decoration: underline;
+}
+
+::selection {
+  background: var(--p-primary-soft);
+  color: var(--p-primary-ink);
+}
+
+/* Eyebrow / overline label — apply as class */
+.eyebrow {
+  font-size: var(--p-fs-overline);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--p-text-muted);
+}
+
+/* Tiny meta — count badges, slider tick labels */
+.meta {
+  font-size: var(--p-fs-meta);
+  letter-spacing: 0.1px;
+  color: var(--p-text-muted);
+}
+
+/* Caption — helper text under inputs, etc. */
+.caption {
+  font-size: var(--p-fs-caption);
+  letter-spacing: 0.1px;
+  color: var(--p-text-muted);
+}

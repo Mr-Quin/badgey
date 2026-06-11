@@ -1,0 +1,132 @@
+/* App-wide globals. Design tokens live in sakura.css (imported first in main.ts). */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--p-bg);
+  color: var(--p-text);
+  font-family: var(--p-font);
+  /* This is a roomier utility surface, not a dense product table — bump the
+     Sakura 13px default to 14px per the design-system guidance. */
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+button {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--p-primary);
+  outline-offset: 2px;
+}
+
+/* Visually hidden but available to assistive tech and test hooks. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Range inputs — Sakura styling (coral thumb, focus halo). */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--p-paper-alt);
+}
+input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--p-paper-alt);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--p-primary);
+  box-shadow: 0 0 0 4px var(--p-action-focus);
+  cursor: pointer;
+}
+input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--p-primary);
+  box-shadow: 0 0 0 4px var(--p-action-focus);
+  cursor: pointer;
+}
+
+@keyframes bdg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes bdg-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Loading skeleton blocks (used before badge info / files arrive). */
+.sk {
+  background: var(--p-paper-alt);
+  border-radius: 6px;
+  animation: bdg-pulse 1.3s ease-in-out infinite;
+}
+.sk-line {
+  height: 12px;
+  margin: 4px 0;
+}
+.sk-line.sm {
+  height: 10px;
+}
+@keyframes bdg-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes bdg-pop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
