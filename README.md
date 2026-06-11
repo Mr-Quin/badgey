@@ -9,8 +9,11 @@
 ## Features
 
 - Image editing: reposition, zoom, rotate, and crop against a round preview that matches the badge.
+- Video clips: drop an MP4, MOV, WebM, or GIF and the editor switches to clip mode with a trim timeline, frame-rate presets, in-app playback, a frame-budget meter, and "grab a frame as a still". The framing tools apply per frame.
 - Quality: uploads keep their detail instead of being heavily recompressed.
 - Persistence: uploads and in-progress drafts are saved in the browser, so you can reopen and re-edit them.
+
+Video is decoded natively by the browser, so MP4, MOV, WebM, and GIF work, but MKV, AVI, and exotic codecs do not.
 
 ## Compatibility
 
