@@ -1,9 +1,11 @@
 name: Deploy to GitHub Pages
 
-# Manual-only: GitHub Pages requires a PUBLIC repo (or a paid plan). This repo is
-# private, so auto-deploy is disabled. To publish: make the repo public + enable
-# Pages (Settings → Pages → Source: GitHub Actions), then run this workflow.
+# Builds and deploys to GitHub Pages through the `github-pages` deployment
+# environment (see the deploy job). Runs on push to main, or manually.
+# Requires Pages enabled: Settings → Pages → Source: GitHub Actions.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
