@@ -1,15 +1,22 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { progress, error, info, connection } from '../lib/stores/badge'
   import { pendingRestore } from '../lib/stores/history'
   import { EditorSession } from '../lib/editor-session'
+  import { get } from '../lib/observable'
+  import { coverCrop, STAGE, CIRCLE } from '../lib/editor'
+  import { openFrameSource, decodeAnimatedFrames, type AnimatedFrames } from '../lib/video/frames'
   import Button from './Button.svelte'
+  import ClipControls from './ClipControls.svelte'
 
   // All editor business logic lives in the framework-agnostic controller; this
   // component is a thin view: it renders `$editor` and forwards DOM events.
   const session = new EditorSession()
   const editor = session.state
-  onDestroy(() => session.destroy())
+  onDestroy(() => {
+    session.destroy()
+    closeGif()
+  })
 
   // View-only derivations that combine editor state with badge stores.
   const tooBig = $derived(
@@ -19,7 +26,13 @@
   const transform = $derived(
     `translate(${$editor.px}px, ${$editor.py}px) scale(${$editor.zoom / 100}) rotate(${$editor.rot}deg)`,
   )
-  const caption = $derived($editor.guides ? 'showing full image' : '240 × 240')
+  const caption = $derived(
+    $editor.guides
+      ? $editor.media === 'video'
+        ? 'showing full frame'
+        : 'showing full image'
+      : '240 × 240',
+  )
   const pct = $derived(
     $progress && $progress.total > 0 ? Math.round(($progress.sent / $progress.total) * 100) : 0,
   )
@@ -38,9 +51,12 @@
   $effect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if ($editor.busy) return
-      const item = Array.from(e.clipboardData?.items ?? []).find(
+      const items = Array.from(e.clipboardData?.items ?? []).filter(
         (i) => i.kind === 'file' && i.type.startsWith('image/'),
       )
+      // Prefer an animation-capable representation: a clipboard often carries a
+      // static png alongside the gif/webp, and the png may come first.
+      const item = items.find((i) => i.type === 'image/gif' || i.type === 'image/webp') ?? items[0]
       const file = item?.getAsFile()
       if (file) {
         e.preventDefault()
@@ -69,7 +85,8 @@
   function onDrop(e: DragEvent) {
     e.preventDefault()
     const file = e.dataTransfer?.files?.[0]
-    if (file && file.type.startsWith('image/')) session.setFile(file)
+    if (file && (file.type.startsWith('image/') || file.type.startsWith('video/')))
+      session.setFile(file)
   }
   function onPointerDown(e: PointerEvent) {
     ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
@@ -94,6 +111,190 @@
     else handled = false
     if (handled) e.preventDefault()
   }
+
+  // ── video preview ────────────────────────────────────────────────
+  const isVideo = $derived($editor.media === 'video')
+  // A real video feeds a <video> element; animated gif/webp can't, so they use
+  // decoded ImageDecoder frames instead.
+  const isPlayableVideo = $derived(
+    $editor.media === 'video' && !!$editor.file && $editor.file.type.startsWith('video/'),
+  )
+  const freeKB = $derived($info ? $info.freeKB : null)
+  const durLabel = $derived($editor.clip ? `${$editor.clip.duration.toFixed(1)}s` : '')
+
+  let videoEl = $state<HTMLVideoElement | undefined>()
+  let circleCanvas = $state<HTMLCanvasElement | undefined>()
+  let ghostCanvas = $state<HTMLCanvasElement | undefined>()
+
+  // Decoded frames for an animated gif/webp preview (kept off reactive state;
+  // read inside the rAF loop). Regenerated once per file.
+  let gifData: AnimatedFrames | null = null
+  let gifFor: File | null = null
+  function closeGif(): void {
+    gifData?.bitmaps.forEach((b) => b.close())
+    gifData = null
+  }
+  async function loadGif(f: File): Promise<void> {
+    const d = await decodeAnimatedFrames(f)
+    if (gifFor === f) gifData = d
+    else d?.bitmaps.forEach((b) => b.close())
+  }
+  $effect(() => {
+    const s = $editor
+    const f = s.file
+    const anim =
+      !!f && (f.type === 'image/gif' || f.type === 'image/webp' || /\.(gif|webp)$/i.test(f.name))
+    if (s.media === 'video' && anim && f && f !== gifFor) {
+      gifFor = f
+      closeGif()
+      void loadGif(f)
+    } else if (gifFor && (s.media !== 'video' || !anim)) {
+      gifFor = null
+      closeGif()
+    }
+  })
+
+  /** The current preview frame: a decoded gif frame at the playhead, or the video. */
+  function frameSource(): { src: CanvasImageSource; w: number; h: number } | null {
+    if (gifData && gifData.bitmaps.length) {
+      const clip = get(editor).clip
+      const t = clip ? clip.playhead : 0
+      let idx = 0
+      for (let i = 0; i < gifData.starts.length; i++) if (gifData.starts[i] <= t) idx = i
+      return { src: gifData.bitmaps[idx], w: gifData.width, h: gifData.height }
+    }
+    const v = videoEl
+    if (v && v.videoWidth) return { src: v, w: v.videoWidth, h: v.videoHeight }
+    return null
+  }
+
+  // Filmstrip thumbnails, regenerated once per video file.
+  let strip = $state<string[]>([])
+  let stripFor: File | null = null
+  $effect(() => {
+    const s = $editor
+    if (s.media === 'video' && s.file && s.file !== stripFor) {
+      stripFor = s.file
+      strip = []
+      void buildStrip(s.file)
+    } else if (s.media !== 'video' && stripFor) {
+      stripFor = null
+      strip = []
+    }
+  })
+
+  async function buildStrip(file: File): Promise<void> {
+    try {
+      const src = await openFrameSource(file)
+      try {
+        const dur = src.duration || 1
+        const N = 12
+        const c = document.createElement('canvas')
+        c.width = 48
+        c.height = 60
+        const ctx = c.getContext('2d')
+        if (!ctx) return
+        const urls: string[] = []
+        for (let i = 0; i < N; i++) {
+          const bmp = await src.frameAt(((i + 0.5) / N) * dur)
+          const { sx, sy, sw, sh } = coverCrop(bmp.width, bmp.height, 48, 60)
+          ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, 48, 60)
+          bmp.close()
+          urls.push(c.toDataURL('image/jpeg', 0.6))
+        }
+        if (stripFor === file) strip = urls
+      } finally {
+        src.close()
+      }
+    } catch {
+      // leave the neutral track if the source can't be sampled
+    }
+  }
+
+  function drawTo(canvas: HTMLCanvasElement | undefined, out: number): void {
+    const fs = frameSource()
+    if (!canvas || !fs) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const s = get(editor)
+    ctx.clearRect(0, 0, out, out)
+    if (out === CIRCLE) {
+      ctx.fillStyle = '#0a0a0a'
+      ctx.fillRect(0, 0, out, out)
+    }
+    ctx.save()
+    ctx.translate(out / 2, out / 2)
+    ctx.translate(s.px, s.py)
+    ctx.scale(s.zoom / 100, s.zoom / 100)
+    ctx.rotate((s.rot * Math.PI) / 180)
+    const { sx, sy, sw, sh } = coverCrop(fs.w, fs.h, STAGE, STAGE)
+    ctx.drawImage(fs.src, sx, sy, sw, sh, -STAGE / 2, -STAGE / 2, STAGE, STAGE)
+    ctx.restore()
+  }
+
+  // One rAF loop drives playback + paints the canvases. It reads state via get()
+  // so it never re-subscribes; cheap no-op when not editing a clip.
+  onMount(() => {
+    let raf = 0
+    let last = 0
+    const loop = (ts: number) => {
+      const s = get(editor)
+      const clip = s.clip
+      if (s.media === 'video' && clip) {
+        const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0
+        if (gifData) {
+          // gif/webp: the playhead is advanced here; frameSource() picks the frame.
+          if (clip.playing) session.advance(dt)
+        } else {
+          const v = videoEl
+          if (v && v.readyState >= 2) {
+            if (clip.playing) {
+              if (v.paused) {
+                v.playbackRate = clip.speed
+                void v.play().catch(() => {})
+              }
+              if (v.playbackRate !== clip.speed) v.playbackRate = clip.speed
+              if (v.currentTime >= clip.outSec || v.currentTime < clip.inSec) {
+                if (clip.loop) v.currentTime = clip.inSec
+                else {
+                  v.pause()
+                  session.pause()
+                }
+              }
+              session.scrub(v.currentTime)
+            } else {
+              if (!v.paused) v.pause()
+              if (Math.abs(v.currentTime - clip.playhead) > 0.02) v.currentTime = clip.playhead
+            }
+          }
+        }
+        drawTo(circleCanvas, CIRCLE)
+        if (s.guides) drawTo(ghostCanvas, STAGE)
+      }
+      last = ts
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  })
+
+  function grabFrame(): void {
+    const fs = frameSource()
+    if (!fs) return
+    const c = document.createElement('canvas')
+    c.width = fs.w
+    c.height = fs.h
+    const ctx = c.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(fs.src, 0, 0)
+    c.toBlob(
+      (blob) => {
+        if (blob) session.grabFrame(new File([blob], 'frame.jpg', { type: 'image/jpeg' }))
+      },
+      'image/jpeg',
+      0.92,
+    )
+  }
 </script>
 
 <div class="composer">
@@ -101,9 +302,14 @@
     <h3>Edit &amp; send</h3>
     {#if $editor.file}
       <span class="saved">Draft saved</span>
+      {#if isVideo}
+        <span class="pill video" data-testid="media-type">Video clip · {durLabel}</span>
+      {:else}
+        <span class="pill" data-testid="media-type">Still image</span>
+      {/if}
       <label class="replace">
         Replace
-        <input class="sr-only" type="file" accept="image/*" onchange={onInput} />
+        <input class="sr-only" type="file" accept="image/*,video/*" onchange={onInput} />
       </label>
     {/if}
   </div>
@@ -123,13 +329,15 @@
           stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg
         >
       </div>
-      <div class="dz-title">Drop an image here</div>
-      <div class="dz-sub">click to browse, or paste from clipboard · JPG, PNG, GIF</div>
+      <div class="dz-title">Drop an image or video clip here</div>
+      <div class="dz-sub">
+        click to browse, or paste from clipboard · JPG, PNG, GIF, MP4, MOV, WebM
+      </div>
       <input
         class="sr-only"
         data-testid="image-input"
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         onchange={onInput}
       />
     </label>
@@ -151,17 +359,30 @@
         onwheel={onWheel}
         onkeydown={onKeyDown}
       >
-        <!-- ghost: full image, dimmed, revealed while editing -->
+        {#if isPlayableVideo && $editor.previewUrl}
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video class="srcvideo" bind:this={videoEl} src={$editor.previewUrl} muted playsinline
+          ></video>
+        {/if}
+        <!-- ghost: full frame, dimmed, revealed while editing -->
         <div class="ghost" style="opacity: {$editor.guides ? 0.34 : 0}">
-          {#if $editor.previewUrl}<img
-              src={$editor.previewUrl}
-              alt=""
-              style="transform: {transform}"
-            />{/if}
+          {#if isVideo}
+            <canvas class="full" bind:this={ghostCanvas} width={STAGE} height={STAGE}></canvas>
+          {:else if $editor.previewUrl}
+            <img src={$editor.previewUrl} alt="" style="transform: {transform}" />
+          {/if}
         </div>
         <!-- bright circle crop -->
         <div class="circle">
-          {#if $editor.previewUrl}
+          {#if isVideo}
+            <canvas
+              class="full"
+              data-testid="image-preview"
+              bind:this={circleCanvas}
+              width={CIRCLE}
+              height={CIRCLE}
+            ></canvas>
+          {:else if $editor.previewUrl}
             <img
               data-testid="image-preview"
               src={$editor.previewUrl}
@@ -177,11 +398,25 @@
         </div>
         <div class="caption">{caption}</div>
       </div>
-      <div class="hint">Drag to reposition · scroll or slider to resize</div>
+      <div class="hint">
+        {isVideo
+          ? 'Drag to reposition · scroll to resize · scrub on the timeline below'
+          : 'Drag to reposition · scroll or slider to resize'}
+      </div>
     </div>
 
     <!-- controls -->
     <div class="controls">
+      {#if isVideo && $editor.clip}
+        <ClipControls
+          {session}
+          clip={$editor.clip}
+          {strip}
+          estimatedKB={$editor.estimatedKB}
+          {freeKB}
+          onGrab={grabFrame}
+        />
+      {/if}
       <div class="row-label">
         <span>Size</span><span class="mono">{Math.round($editor.zoom)}%</span>
       </div>
@@ -225,7 +460,9 @@
       </div>
 
       <div class="row-label spaced">
-        <span>Quality</span><span class="mono">{Math.round($editor.quality * 100)}%</span>
+        <span>{isVideo ? 'Frame quality' : 'Quality'}</span><span class="mono"
+          >{Math.round($editor.quality * 100)}%</span
+        >
       </div>
       <input
         data-testid="quality-slider"
@@ -239,7 +476,9 @@
         style="width: 100%"
       />
       <div class="ends">
-        <span class="meta">Smaller file</span><span class="meta">Best detail</span>
+        <span class="meta">{isVideo ? 'Smaller clip' : 'Smaller file'}</span><span class="meta"
+          >Best detail</span
+        >
       </div>
 
       <div class="estimate" class:over={tooBig} data-testid="size-estimate">
@@ -265,7 +504,13 @@
           onclick={() => session.send()}
           disabled={$editor.busy || tooBig || !connected}
         >
-          {$editor.busy ? 'Sending…' : tooBig ? "Won't fit, lower the quality" : 'Send to badge'}
+          {$editor.busy
+            ? 'Sending…'
+            : tooBig
+              ? "Won't fit, lower the quality"
+              : isVideo
+                ? 'Send clip to badge'
+                : 'Send to badge'}
         </Button>
       </div>
       {#if !connected}
@@ -274,8 +519,26 @@
     </div>
   {/if}
 
-  <!-- uploading overlay -->
-  {#if $editor.busy && $progress}
+  <!-- preparing (video encode) / uploading overlay -->
+  {#if $editor.preparing != null}
+    {@const ppct = Math.round($editor.preparing * 100)}
+    <div class="overlay" data-testid="upload-progress">
+      <div class="sheet">
+        <div
+          class="ring-prog"
+          style="background: conic-gradient(var(--p-primary) {ppct * 3.6}deg, var(--p-paper-alt) 0)"
+        >
+          <div class="ring-hole">{ppct}%</div>
+        </div>
+        <div class="sheet-title">Preparing clip…</div>
+        <div class="sheet-sub mono">Encoding frames</div>
+        <div class="warn">
+          <span>⚠</span>
+          <div>Keep this tab open and the badge awake.</div>
+        </div>
+      </div>
+    </div>
+  {:else if $editor.busy && $progress}
     <div class="overlay" data-testid="upload-progress">
       <div class="sheet">
         <div
@@ -284,7 +547,7 @@
         >
           <div class="ring-hole">{pct}%</div>
         </div>
-        <div class="sheet-title">Sending to badge…</div>
+        <div class="sheet-title">{isVideo ? 'Sending clip…' : 'Sending to badge…'}</div>
         <div class="sheet-sub mono">{sentKB} KB / {totalKB} KB</div>
         <div class="warn">
           <span>⚠</span>
@@ -304,7 +567,9 @@
           </div>
           <div class="check">✓</div>
         </div>
-        <div class="sheet-title big">It's on your badge!</div>
+        <div class="sheet-title big">
+          {isVideo ? 'Your clip is on the badge!' : "It's on your badge!"}
+        </div>
         <div class="sheet-sub">Saved to your badge.</div>
         <div class="send-wrap">
           <Button variant="primary" size="lg" block onclick={() => session.finish()}>Done</Button>
@@ -360,6 +625,22 @@
   }
   .replace:hover {
     background: var(--p-action-hover);
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--p-text-muted);
+    background: var(--p-paper-alt);
+    padding: 4px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.video {
+    color: var(--p-secondary-ink);
+    background: var(--p-secondary-soft);
   }
 
   /* drop zone */
@@ -437,6 +718,28 @@
     margin: -160px 0 0 -160px;
     object-fit: cover;
     transform-origin: center;
+    pointer-events: none;
+  }
+  /* Hidden video source feeding the preview canvases. */
+  .srcvideo {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .ghost canvas.full {
+    position: absolute;
+    inset: 0;
+    width: 320px;
+    height: 320px;
+    pointer-events: none;
+  }
+  .circle canvas.full {
+    position: absolute;
+    inset: 0;
+    width: 240px;
+    height: 240px;
     pointer-events: none;
   }
   .circle {

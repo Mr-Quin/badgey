@@ -1,0 +1,392 @@
+<script lang="ts">
+  import type { EditorSession, ClipState } from '../lib/editor-session'
+  import { FPS_PRESETS, SPEED_PRESETS, budget } from '../lib/video/clip'
+  import VideoTimeline from './VideoTimeline.svelte'
+
+  let {
+    session,
+    clip,
+    strip,
+    estimatedKB,
+    freeKB,
+    onGrab,
+  }: {
+    session: EditorSession
+    clip: ClipState
+    strip: string[]
+    estimatedKB: number | null
+    freeKB: number | null
+    onGrab: () => void
+  } = $props()
+
+  const fmt = (t: number) => `${t.toFixed(1)}s`
+  const span = $derived(Math.max(0, clip.outSec - clip.inSec))
+  const cur = $derived(Math.max(0, clip.playhead - clip.inSec))
+
+  const b = $derived(estimatedKB != null && freeKB != null ? budget(estimatedKB, freeKB) : null)
+  const budgetColor = $derived(
+    b?.level === 'over'
+      ? 'var(--p-danger)'
+      : b?.level === 'warn'
+        ? 'var(--p-warning)'
+        : 'var(--p-success)',
+  )
+  const budgetInk = $derived(
+    b?.level === 'over'
+      ? 'var(--p-danger-ink)'
+      : b?.level === 'warn'
+        ? 'var(--p-warning-ink)'
+        : 'var(--p-text-muted)',
+  )
+  const budgetMsg = $derived(
+    b == null
+      ? 'Estimating clip size…'
+      : b.level === 'over'
+        ? `Over by ${b.overByKB} KB. Trim the clip or lower the frame rate.`
+        : b.level === 'warn'
+          ? 'Close to the limit. Sends fine, but little room to spare.'
+          : `${clip.frames} frames fit in the free space.`,
+  )
+</script>
+
+<div class="clip">
+  <div class="head">
+    <div class="title">
+      <span class="t">Clip</span>
+      <span class="mono">{fmt(cur)} / {fmt(span)}</span>
+    </div>
+    <span class="hint">drag tab to scrub · bar to move</span>
+  </div>
+
+  <!-- playback bar -->
+  <div class="bar">
+    <button
+      class="play"
+      data-testid="play-toggle"
+      title={clip.playing ? 'Pause' : 'Play'}
+      aria-label={clip.playing ? 'Pause' : 'Play'}
+      onclick={() => session.togglePlay()}
+    >
+      {#if clip.playing}
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"
+          ><rect x="6" y="5" width="4" height="14" rx="1" /><rect
+            x="14"
+            y="5"
+            width="4"
+            height="14"
+            rx="1"
+          /></svg
+        >
+      {:else}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="margin-left:2px"
+          ><path d="M8 5v14l11-7z" /></svg
+        >
+      {/if}
+    </button>
+    <button
+      class="loop"
+      class:on={clip.loop}
+      title="Loop the clip on the badge"
+      onclick={() => session.setLoop(!clip.loop)}
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        ><path d="M17 2l4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path
+          d="M7 22l-4-4 4-4"
+        /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg
+      >Loop
+    </button>
+    <div class="spacer"></div>
+    <div class="speeds">
+      {#each SPEED_PRESETS as sp}
+        <button class:on={clip.speed === sp} onclick={() => session.setSpeed(sp)}>{sp}×</button>
+      {/each}
+    </div>
+  </div>
+
+  <VideoTimeline {session} {clip} {strip} />
+
+  <!-- in / span / out -->
+  <div class="readouts">
+    <div class="ro left">
+      <div class="cap">In</div>
+      <div class="mono v">{fmt(clip.inSec)}</div>
+    </div>
+    <div class="pill">{fmt(span)} · {clip.frames} frames</div>
+    <div class="ro right">
+      <div class="cap">Out</div>
+      <div class="mono v">{fmt(clip.outSec)}</div>
+    </div>
+  </div>
+
+  <!-- frame rate -->
+  <div class="rowhead">
+    <span>Frame rate</span><span class="mono">{clip.fps} fps</span>
+  </div>
+  <div class="fps">
+    {#each FPS_PRESETS as n}
+      <button data-testid="fps-chip" class:on={clip.fps === n} onclick={() => session.setFps(n)}
+        >{n}</button
+      >
+    {/each}
+  </div>
+
+  <!-- frame budget -->
+  <div class="budget" data-testid="frame-budget">
+    <div class="rowhead">
+      <span>Frame budget</span>
+      <span class="mono" style="color:{budgetInk};font-weight:700">
+        {estimatedKB != null ? `${estimatedKB} KB` : '…'}{freeKB != null
+          ? ` / ${freeKB} KB free`
+          : ''}
+      </span>
+    </div>
+    <div class="track">
+      <div class="fill" style="width:{Math.min(100, b?.pct ?? 0)}%;background:{budgetColor}"></div>
+    </div>
+    <div class="msg" style="color:{budgetInk}">
+      <span class="dot" style="background:{budgetColor}"></span>{budgetMsg}
+    </div>
+  </div>
+
+  <button class="grab" onclick={onGrab}>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      ><rect x="3" y="6" width="18" height="14" rx="2" /><circle cx="12" cy="13" r="3.4" /><path
+        d="M8 6l1.5-2.2h5L16 6"
+      /></svg
+    >
+    Grab this frame as a still
+  </button>
+</div>
+
+<style>
+  .clip {
+    border: 1px solid var(--p-divider);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 20px;
+    background: var(--p-bg);
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .title .t {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--p-text);
+  }
+  .mono {
+    font-family: var(--p-mono);
+  }
+  .head .mono {
+    font-size: 11px;
+    color: var(--p-text-muted);
+  }
+  .hint {
+    font-size: 10.5px;
+    color: var(--p-text-muted);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .play {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 0;
+    cursor: pointer;
+    background: var(--p-primary);
+    color: var(--p-on-primary);
+    display: grid;
+    place-items: center;
+    box-shadow: 0 8px 18px -8px var(--p-action-focus);
+  }
+  .loop {
+    height: 30px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 700;
+    border: 1px solid var(--p-divider);
+    background: transparent;
+    color: var(--p-text-muted);
+  }
+  .loop.on {
+    border-color: transparent;
+    background: var(--p-primary-soft);
+    color: var(--p-primary-ink);
+  }
+  .spacer {
+    flex: 1;
+  }
+  .speeds {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--p-paper);
+    border: 1px solid var(--p-divider);
+    border-radius: 999px;
+    padding: 2px;
+  }
+  .speeds button {
+    height: 24px;
+    min-width: 34px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    background: transparent;
+    color: var(--p-text-muted);
+  }
+  .speeds button.on {
+    background: var(--p-primary);
+    color: var(--p-on-primary);
+  }
+  .readouts {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 10px;
+  }
+  .ro.right {
+    text-align: right;
+  }
+  .cap {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--p-text-muted);
+  }
+  .ro .v {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--p-text);
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: var(--p-primary-soft);
+    color: var(--p-primary-ink);
+    font-size: 11.5px;
+    font-weight: 800;
+  }
+  .rowhead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 16px 0 7px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--p-text);
+  }
+  .rowhead .mono {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--p-text-muted);
+  }
+  .fps {
+    display: flex;
+    gap: 6px;
+  }
+  .fps button {
+    flex: 1;
+    height: 34px;
+    border-radius: 9px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 800;
+    border: 1px solid var(--p-divider);
+    background: var(--p-paper);
+    color: var(--p-text);
+  }
+  .fps button.on {
+    border-color: var(--p-primary);
+    background: var(--p-primary);
+    color: var(--p-on-primary);
+  }
+  .budget {
+    margin-top: 16px;
+  }
+  .track {
+    position: relative;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--p-paper-alt);
+    overflow: hidden;
+  }
+  .fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+  }
+  .msg {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 7px;
+    font-size: 11px;
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .grab {
+    width: 100%;
+    height: 36px;
+    margin-top: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border-radius: 9px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--p-text);
+    background: transparent;
+    border: 1px solid var(--p-divider);
+  }
+</style>
