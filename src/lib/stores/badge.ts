@@ -198,7 +198,7 @@ export async function refresh(): Promise<void> {
 
 /** Upload a prepared JPEG. Returns the filename the badge assigned (found by
  *  diffing the file list), or null — used to tie the upload to its history entry. */
-export async function upload(bytes: Uint8Array): Promise<string | null> {
+export async function upload(bytes: Uint8Array, opts?: { ext?: string }): Promise<string | null> {
   if (!client) throw new Error('not connected')
   error.set(null)
   progress.set(null)
@@ -216,6 +216,7 @@ export async function upload(bytes: Uint8Array): Promise<string | null> {
     progress.set({ sent: 0, total: bytes.length })
     await withOp(() =>
       client!.uploadImage(bytes, {
+        ext: opts?.ext,
         onProgress: (sent, total) => progress.set({ sent, total }),
       }),
     )

@@ -32,3 +32,12 @@ test('end-to-end protocol against FakeBadge', async () => {
   const final = await client.listFiles()
   expect(final.some((f) => f.name === 'f_1.jpg')).toBe(false)
 }, 30000)
+
+test('upload uses the .avi display name when ext is avi', async () => {
+  const fb = new FakeBadge()
+  const client = new BadgeClient(fb, { authSettleMs: 0, browseQuiesceMs: 5 })
+  await client.connect()
+  await client.uploadImage(new Uint8Array(3000).fill(7), { ext: 'avi' })
+  const after = await client.listFiles()
+  expect(after.some((f) => f.name.endsWith('.avi'))).toBe(true)
+}, 30000)

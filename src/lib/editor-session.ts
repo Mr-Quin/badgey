@@ -4,9 +4,26 @@
  * and calls the methods; DOM/pointer plumbing stays in the view.
  */
 import { writable, get, type Readable } from './observable'
-import { clampOffset, renderBadgeJpeg, DEFAULT_TRANSFORM } from './editor'
+import { clampOffset, renderBadgeJpeg, renderBitmapJpeg, DEFAULT_TRANSFORM } from './editor'
 import { persistHistory, type HistoryItem } from './stores/history'
 import { upload, deviceId, error } from './stores/badge'
+import { probeVideo } from './video/probe'
+import { frameCount, clampPlayhead } from './video/clip'
+import { encodeClip } from './video/encode'
+import { openFrameSource, isAnimatedImageType, probeAnimatedImage } from './video/frames'
+
+/** Live video-clip state (superset of the persisted `{inSec,outSec,fps}`). */
+export interface ClipState {
+  duration: number
+  inSec: number
+  outSec: number
+  fps: number
+  speed: number
+  playhead: number
+  loop: boolean
+  playing: boolean
+  frames: number
+}
 
 export interface EditorState {
   file: File | null
@@ -25,6 +42,12 @@ export interface EditorState {
   success: boolean
   /** Estimated upload size in KB, or null while (re)computing. */
   estimatedKB: number | null
+  /** Still image or video clip, auto-detected from the file. */
+  media: 'image' | 'video'
+  /** Trim/fps/playback state when `media === 'video'`, else null. */
+  clip: ClipState | null
+  /** Encode progress [0,1] while preparing a clip to send, else null. */
+  preparing: number | null
 }
 
 const AUTOSAVE_MS = 600
@@ -47,8 +70,13 @@ function freshState(): EditorState {
     busy: false,
     success: false,
     estimatedKB: null,
+    media: 'image',
+    clip: null,
+    preparing: null,
   }
 }
+
+const DEFAULT_FPS = 15
 
 function normalizeDeg(d: number): number {
   return (((d % 360) + 540) % 360) - 180
@@ -90,6 +118,11 @@ export class EditorSession {
     this.uploaded = false
     this.badgeName = null
     this.badgeDeviceId = null
+    // A real video is a clip immediately. An animated image (gif/webp) starts as
+    // an image and upgrades to a clip only once we confirm it has >1 frame, so a
+    // static gif never flickers into clip mode.
+    const video = !!file && file.type.startsWith('video/')
+    const animCandidate = !!file && !video && isAnimatedImageType(file)
     this.commit({
       file,
       previewUrl: file ? URL.createObjectURL(file) : null,
@@ -101,15 +134,70 @@ export class EditorSession {
       source,
       success: false,
       estimatedKB: null,
+      media: video ? 'video' : 'image',
+      clip: null,
+      preparing: null,
     })
     if (file) {
       this.id = globalThis.crypto.randomUUID()
       this.createdAt = Date.now()
       void this.persist(false) // record the draft immediately so it survives reload
-      this.schedule()
+      if (video || animCandidate) {
+        if (!video) this.schedule() // image estimate while we probe for animation
+        void this.seedClip(file)
+      } else {
+        this.schedule()
+      }
     } else {
       this.id = null
     }
+  }
+
+  /** Probe a clip and seed the trim window (full clip, or a restored draft's window).
+   *  Handles real video (via <video>) and animated images (via ImageDecoder). */
+  private async seedClip(
+    file: File,
+    saved?: { inSec: number; outSec: number; fps: number },
+  ): Promise<void> {
+    const animated = isAnimatedImageType(file)
+    let duration: number
+    try {
+      if (animated) {
+        const meta = await probeAnimatedImage(file)
+        if (!meta) {
+          // Static gif/webp (single frame): it's just an image, stay in image mode.
+          return
+        }
+        duration = meta.duration || meta.frames / 10
+      } else {
+        duration = (await probeVideo(file)).duration
+      }
+    } catch {
+      // Undecodable as video: fall back to a still image.
+      error.set('This video format cannot be read in the browser. Try MP4, MOV, WebM, or GIF.')
+      this.commit({ media: 'image', clip: null })
+      this.schedule()
+      return
+    }
+    if (this.s.file !== file) return // a newer file replaced this one mid-probe
+    const inSec = saved ? Math.max(0, Math.min(saved.inSec, duration)) : 0
+    const outSec = saved ? Math.max(inSec, Math.min(saved.outSec, duration)) : duration
+    const fps = saved?.fps ?? DEFAULT_FPS
+    this.commit({
+      media: 'video',
+      clip: {
+        duration,
+        inSec,
+        outSec,
+        fps,
+        speed: 1,
+        playhead: inSec,
+        loop: true,
+        playing: false,
+        frames: frameCount(inSec, outSec, fps),
+      },
+    })
+    this.schedule()
   }
 
   /** Reopen a saved history item into the editor. */
@@ -122,6 +210,7 @@ export class EditorSession {
     this.uploaded = item.uploaded
     this.badgeName = item.badgeName ?? null
     this.badgeDeviceId = item.badgeDeviceId ?? null
+    const video = item.media === 'video'
     this.commit({
       file,
       previewUrl: URL.createObjectURL(file),
@@ -134,8 +223,12 @@ export class EditorSession {
       source: item.source ?? 'file',
       success: false,
       estimatedKB: null,
+      media: video ? 'video' : 'image',
+      clip: null,
+      preparing: null,
     })
-    this.schedule()
+    if (video) void this.seedClip(file, item.clip)
+    else this.schedule()
   }
 
   /** Dismiss the success state and clear the editor. */
@@ -202,10 +295,101 @@ export class EditorSession {
     this.schedule()
   }
 
+  // ── video clip trim / playback ───────────────────────────────────
+  private patchClip(p: Partial<ClipState>): void {
+    if (!this.s.clip) return
+    const c = { ...this.s.clip, ...p }
+    c.frames = frameCount(c.inSec, c.outSec, c.fps)
+    c.playhead = clampPlayhead(c.playhead, c.inSec, c.outSec)
+    this.commit({ clip: c })
+    this.schedule()
+  }
+  setIn(t: number): void {
+    if (this.s.clip) this.patchClip({ inSec: Math.max(0, Math.min(t, this.s.clip.outSec - 0.1)) })
+  }
+  setOut(t: number): void {
+    const c = this.s.clip
+    if (c) this.patchClip({ outSec: Math.min(c.duration, Math.max(t, c.inSec + 0.1)) })
+  }
+  /** Slide the whole trim window to a new in-point, keeping its length. */
+  slideWindow(inSec: number): void {
+    const c = this.s.clip
+    if (!c) return
+    const span = c.outSec - c.inSec
+    const ni = Math.max(0, Math.min(inSec, c.duration - span))
+    this.patchClip({ inSec: ni, outSec: ni + span })
+  }
+  setFps(fps: number): void {
+    this.patchClip({ fps })
+  }
+  setSpeed(speed: number): void {
+    if (this.s.clip) this.commit({ clip: { ...this.s.clip, speed } })
+  }
+  scrub(t: number): void {
+    // Playhead does not affect size, so commit without rescheduling the estimate.
+    const c = this.s.clip
+    if (c) this.commit({ clip: { ...c, playhead: clampPlayhead(t, c.inSec, c.outSec) } })
+  }
+  setLoop(loop: boolean): void {
+    if (this.s.clip) this.commit({ clip: { ...this.s.clip, loop } })
+  }
+  play(): void {
+    if (this.s.clip) this.commit({ clip: { ...this.s.clip, playing: true } })
+  }
+  pause(): void {
+    if (this.s.clip) this.commit({ clip: { ...this.s.clip, playing: false } })
+  }
+  togglePlay(): void {
+    if (this.s.clip?.playing) this.pause()
+    else this.play()
+  }
+
+  /** Advance playback by dt seconds (driven by a rAF in the view; pure here for tests). */
+  advance(dt: number): void {
+    const c = this.s.clip
+    if (!c || !c.playing) return
+    const span = Math.max(1e-4, c.outSec - c.inSec)
+    let p = c.playhead + dt * c.speed
+    if (p >= c.outSec) {
+      if (c.loop) {
+        p = c.inSec + ((p - c.inSec) % span)
+      } else {
+        this.commit({ clip: { ...c, playhead: c.outSec, playing: false } })
+        return
+      }
+    }
+    this.commit({ clip: { ...c, playhead: p } })
+  }
+
+  /** Capture the current frame as a still and switch to image mode. */
+  grabFrame(stillFile: File): void {
+    this.pause()
+    this.setFile(stillFile, this.s.source)
+  }
+
+  /** Test seam: load a clip without a real file or DOM probe. */
+  _loadClipForTest(c: { duration: number; inSec: number; outSec: number; fps: number }): void {
+    this.commit({
+      media: 'video',
+      clip: {
+        ...c,
+        speed: 1,
+        playhead: c.inSec,
+        loop: true,
+        playing: false,
+        frames: frameCount(c.inSec, c.outSec, c.fps),
+      },
+    })
+  }
+
   // ── send ─────────────────────────────────────────────────────────
   async send(): Promise<void> {
     const file = this.s.file
     if (!file || this.s.busy) return
+    if (this.s.media === 'video' && this.s.clip) {
+      await this.sendClip(file, this.s.clip)
+      return
+    }
     this.commit({ busy: true, success: false })
     let bytes: Uint8Array
     try {
@@ -225,6 +409,37 @@ export class EditorSession {
         sentUrl: URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/jpeg' })),
         success: true,
       })
+      await this.persist(true)
+    } catch {
+      // upload failures surface via the badge error store
+    } finally {
+      this.commit({ busy: false })
+    }
+  }
+
+  /** Encode the trimmed clip to MJPEG-AVI (with a "preparing" stage), then upload it. */
+  private async sendClip(file: File, clip: ClipState): Promise<void> {
+    this.pause()
+    this.commit({ busy: true, success: false, preparing: 0 })
+    let res
+    try {
+      res = await encodeClip(
+        file,
+        this.transform(),
+        { inSec: clip.inSec, outSec: clip.outSec, fps: clip.fps },
+        this.s.quality,
+        (p) => this.commit({ preparing: p }),
+      )
+    } catch {
+      error.set('Could not prepare the clip. Try a shorter clip or a lower frame rate.')
+      this.commit({ busy: false, preparing: null })
+      return
+    }
+    this.commit({ preparing: null })
+    try {
+      this.badgeDeviceId = get(deviceId)
+      this.badgeName = await upload(res.bytes, { ext: 'avi' })
+      this.commit({ success: true })
       await this.persist(true)
     } catch {
       // upload failures surface via the badge error store
@@ -266,8 +481,23 @@ export class EditorSession {
     }
     this.estimateTimer = setTimeout(async () => {
       try {
-        const bytes = await renderBadgeJpeg(file, this.transform(), this.s.quality)
-        this.commit({ estimatedKB: Math.max(1, Math.round(bytes.length / 1024)) })
+        const clip = this.s.clip
+        if (this.s.media === 'video' && clip) {
+          // Encode one mid-clip frame and scale by the frame count, rather than
+          // encoding the whole clip on every edit.
+          const src = await openFrameSource(file)
+          try {
+            const bmp = await src.frameAt((clip.inSec + clip.outSec) / 2)
+            const one = await renderBitmapJpeg(bmp, this.transform(), this.s.quality)
+            bmp.close()
+            this.commit({ estimatedKB: Math.max(1, Math.round((one.length * clip.frames) / 1024)) })
+          } finally {
+            src.close()
+          }
+        } else {
+          const bytes = await renderBadgeJpeg(file, this.transform(), this.s.quality)
+          this.commit({ estimatedKB: Math.max(1, Math.round(bytes.length / 1024)) })
+        }
       } catch {
         this.commit({ estimatedKB: null })
       }
@@ -278,6 +508,7 @@ export class EditorSession {
     const file = this.s.file
     if (!file || !this.id) return
     this.uploaded = uploaded
+    const clip = this.s.clip
     await persistHistory({
       id: this.id,
       name: file.name || 'image',
@@ -286,6 +517,11 @@ export class EditorSession {
       quality: this.s.quality,
       uploaded,
       source: this.s.source,
+      media: this.s.media,
+      clip:
+        this.s.media === 'video' && clip
+          ? { inSec: clip.inSec, outSec: clip.outSec, fps: clip.fps }
+          : undefined,
       badgeName: this.badgeName ?? undefined,
       badgeDeviceId: this.badgeDeviceId ?? undefined,
       createdAt: this.createdAt || Date.now(),

@@ -61,25 +61,40 @@ export async function renderBadgeJpeg(
 ): Promise<Uint8Array> {
   const bitmap = await createImageBitmap(src)
   try {
-    const canvas = new OffscreenCanvas(OUT, OUT)
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('2d context unavailable')
-
-    ctx.fillStyle = '#000000'
-    ctx.fillRect(0, 0, OUT, OUT)
-
-    ctx.save()
-    ctx.translate(OUT / 2, OUT / 2)
-    ctx.translate(t.px, t.py)
-    ctx.scale(t.zoom / 100, t.zoom / 100)
-    ctx.rotate((t.rot * Math.PI) / 180)
-    const { sx, sy, sw, sh } = coverCrop(bitmap.width, bitmap.height, STAGE, STAGE)
-    ctx.drawImage(bitmap, sx, sy, sw, sh, -STAGE / 2, -STAGE / 2, STAGE, STAGE)
-    ctx.restore()
-
-    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality })
-    return new Uint8Array(await blob.arrayBuffer())
+    return await renderBitmapJpeg(bitmap, t, quality)
   } finally {
     bitmap.close()
   }
+}
+
+/** Replay the editor transform of a bitmap onto a 240×240 2D context (black bg). */
+function drawTransformed(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  bitmap: ImageBitmap,
+  t: Transform,
+): void {
+  ctx.fillStyle = '#000000'
+  ctx.fillRect(0, 0, OUT, OUT)
+  ctx.save()
+  ctx.translate(OUT / 2, OUT / 2)
+  ctx.translate(t.px, t.py)
+  ctx.scale(t.zoom / 100, t.zoom / 100)
+  ctx.rotate((t.rot * Math.PI) / 180)
+  const { sx, sy, sw, sh } = coverCrop(bitmap.width, bitmap.height, STAGE, STAGE)
+  ctx.drawImage(bitmap, sx, sy, sw, sh, -STAGE / 2, -STAGE / 2, STAGE, STAGE)
+  ctx.restore()
+}
+
+/** Render an already-decoded bitmap (e.g. one video frame) to a 240×240 JPEG. */
+export async function renderBitmapJpeg(
+  bitmap: ImageBitmap,
+  t: Transform,
+  quality: number,
+): Promise<Uint8Array> {
+  const canvas = new OffscreenCanvas(OUT, OUT)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('2d context unavailable')
+  drawTransformed(ctx, bitmap, t)
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality })
+  return new Uint8Array(await blob.arrayBuffer())
 }

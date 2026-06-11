@@ -18,6 +18,12 @@ export interface HistoryItem {
   uploaded: boolean
   /** Where the image came from (for a label, since pastes have no filename). */
   source: 'file' | 'paste'
+  /** Still image, or a trimmed video clip. Absent means a legacy image entry. */
+  media?: 'image' | 'video'
+  /** Trim window + frame rate, for restoring a video editing session. */
+  clip?: { inSec: number; outSec: number; fps: number }
+  /** First-frame JPEG, for a round preview (video drafts and associated uploads). */
+  thumbnail?: Blob
   /** Filename the badge assigned once uploaded, used to match it in the file list. */
   badgeName?: string
   /**

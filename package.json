@@ -25,6 +25,7 @@
     "@types/node": "^24.12.3",
     "@types/web-bluetooth": "^0.0.21",
     "@typescript/native-preview": "^7.0.0-dev.20260610.1",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
     "knip": "^6.16.1",
     "oxfmt": "^0.54.0",

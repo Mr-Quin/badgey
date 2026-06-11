@@ -378,7 +378,7 @@ export class BadgeClient {
 
   async uploadImage(
     bytes: Uint8Array,
-    opts?: { onProgress?: (sent: number, total: number) => void },
+    opts?: { onProgress?: (sent: number, total: number) => void; ext?: string },
   ): Promise<void> {
     await this.qixSendWait(
       QIX_CMD.SET_FILE_TYPE,
@@ -396,7 +396,8 @@ export class BadgeClient {
     const hash = (bytes.length >>> 0).toString(16).padStart(8, '0')
     const tmpName = hash + '.tmp\0'
     const startPayload = buildStartPayload(bytes.length, fileCrc, tmpName)
-    const displayName = '啜f_' + Math.floor(Date.now() / 1000) + '.jpg\0'
+    const ext2 = opts?.ext ?? 'jpg'
+    const displayName = '啜f_' + Math.floor(Date.now() / 1000) + '.' + ext2 + '\0'
     const timeoutMs = Math.max(120000, (bytes.length / 1200) * 1000)
 
     // Stage upload state before sending start, so the first pull is serviced.
