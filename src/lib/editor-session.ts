@@ -256,9 +256,8 @@ export class EditorSession {
     else this.schedule()
   }
 
-  /** Dismiss the success state and clear the editor. */
+  /** Dismiss the success overlay, keeping the current edit loaded for more tweaks. */
   finish(): void {
-    this.setFile(null)
     this.commit({ success: false })
   }
 

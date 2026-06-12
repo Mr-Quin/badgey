@@ -56,11 +56,8 @@ test('uploads a video clip as an .avi file', async ({ page }) => {
     .poll(async () => (await badge.fileNames()).some((n) => n.endsWith('.avi')))
     .toBe(true)
 
-  // Recent shows the clip as a still snapshot with a video badge (not a broken video).
-  const clipRow = page
-    .getByTestId('history-item')
-    .filter({ has: page.locator('.play') })
-    .first()
+  // Recent shows the clip as a still snapshot with a "Clip" chip (not a broken video).
+  const clipRow = page.getByTestId('history-item').filter({ hasText: 'Clip' }).first()
   await expect(clipRow).toBeVisible()
   await expect(clipRow.locator('img')).toBeVisible()
 })

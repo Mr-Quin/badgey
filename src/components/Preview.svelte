@@ -61,11 +61,9 @@
     }
   })
 
-  /** The current preview frame: a decoded gif frame at the playhead, or the video. */
-  function frameSource(): { src: CanvasImageSource; w: number; h: number } | null {
+  /** The preview frame at time `t`: a decoded gif frame, or the live video. */
+  function frameSource(t: number): { src: CanvasImageSource; w: number; h: number } | null {
     if (gifData && gifData.bitmaps.length) {
-      const clip = get(editor).clip
-      const t = clip ? clip.playhead : 0
       let idx = 0
       for (let i = 0; i < gifData.starts.length; i++) if (gifData.starts[i] <= t) idx = i
       return { src: gifData.bitmaps[idx], w: gifData.width, h: gifData.height }
@@ -75,8 +73,8 @@
     return null
   }
 
-  function drawTo(canvas: HTMLCanvasElement | undefined, out: number): void {
-    const fs = frameSource()
+  function drawTo(canvas: HTMLCanvasElement | undefined, out: number, t: number): void {
+    const fs = frameSource(t)
     if (!canvas || !fs) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -101,6 +99,7 @@
   onMount(() => {
     let raf = 0
     let last = 0
+    let lastFrame = -1
     const loop = (ts: number) => {
       const s = get(editor)
       const clip = s.clip
@@ -131,8 +130,21 @@
             }
           }
         }
-        drawTo(circleCanvas, CIRCLE)
-        if (s.guides) drawTo(ghostCanvas, STAGE)
+        // FPS-quantized repaint: redraw only on a new frame step, so a low fps
+        // visibly stutters like the badge does. Always repaint while editing
+        // (guides) so drags/zooms stay live.
+        const c = get(editor).clip
+        if (c) {
+          const frameIdx = Math.floor((c.playhead - c.inSec) * c.fps)
+          if (frameIdx !== lastFrame || s.guides) {
+            const qt = c.inSec + frameIdx / c.fps
+            drawTo(circleCanvas, CIRCLE, qt)
+            if (s.guides) drawTo(ghostCanvas, STAGE, qt)
+            lastFrame = frameIdx
+          }
+        }
+      } else {
+        lastFrame = -1
       }
       last = ts
       raf = requestAnimationFrame(loop)
@@ -216,7 +228,7 @@
 
   /** Capture the current preview frame as a still (used by "grab a frame"). */
   export function grab(): void {
-    const fs = frameSource()
+    const fs = frameSource(get(editor).clip?.playhead ?? 0)
     if (!fs) return
     const c = document.createElement('canvas')
     c.width = fs.w

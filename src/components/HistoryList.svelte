@@ -2,6 +2,18 @@
   import { historyItems, requestRestore, removeHistory } from '../lib/stores/history'
   import Button from './Button.svelte'
 
+  // Most items have no useful filename (pastes, clips), so label by relative time.
+  function timeAgo(ts: number): string {
+    const s = Math.max(0, (Date.now() - ts) / 1000)
+    if (s < 45) return 'just now'
+    const m = Math.round(s / 60)
+    if (m < 1) return 'just now'
+    if (m < 60) return `${m}m ago`
+    const h = Math.round(m / 60)
+    if (h < 24) return `${h}h ago`
+    return `${Math.round(h / 24)}d ago`
+  }
+
   // Thumbnail URLs, revoked on change/unmount. Must not read `urls` (would self-trigger).
   // Video items show a saved snapshot, never the video blob (which a <img> can't render).
   let urls = $state<Record<string, string>>({})
@@ -27,17 +39,13 @@
         <div class="row" data-testid="history-item">
           <div class="thumb" aria-hidden="true">
             {#if urls[it.id]}<img src={urls[it.id]} alt="" />{/if}
-            {#if it.media === 'video'}
-              <span class="play">
-                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"
-                  ><path d="M8 5v14l11-7z" /></svg
-                >
-              </span>
-            {/if}
           </div>
           <div class="meta">
-            <div class="name">{it.name}</div>
-            <span class="chip" class:up={it.uploaded}>{it.uploaded ? 'Uploaded' : 'Draft'}</span>
+            <div class="when">{timeAgo(it.updatedAt)}</div>
+            <div class="chips">
+              <span class="chip" class:up={it.uploaded}>{it.uploaded ? 'Uploaded' : 'Draft'}</span>
+              {#if it.media === 'video'}<span class="chip clip">Clip</span>{/if}
+            </div>
           </div>
           <Button
             variant="soft"
@@ -110,34 +118,23 @@
     object-fit: cover;
     display: block;
   }
-  .play {
-    position: absolute;
-    right: -2px;
-    bottom: -2px;
-    width: 15px;
-    height: 15px;
-    border-radius: 50%;
-    background: var(--p-tooltip-bg);
-    color: #fff;
-    display: grid;
-    place-items: center;
-    box-shadow: 0 0 0 2px var(--p-paper);
-  }
   .meta {
     flex: 1;
     min-width: 0;
   }
-  .name {
-    font-family: var(--p-mono);
-    font-size: 12px;
+  .when {
+    font-size: 12.5px;
+    font-weight: 700;
     color: var(--p-text);
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  }
+  .chips {
+    display: flex;
+    gap: 5px;
+    margin-top: 3px;
   }
   .chip {
     display: inline-block;
-    margin-top: 3px;
     font-size: 10px;
     font-weight: 700;
     padding: 1px 7px;
@@ -148,6 +145,10 @@
   .chip.up {
     background: var(--p-success-soft);
     color: var(--p-success-ink);
+  }
+  .chip.clip {
+    background: var(--p-secondary-soft);
+    color: var(--p-secondary-ink);
   }
   .del {
     width: 28px;

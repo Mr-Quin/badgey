@@ -60,13 +60,16 @@
     data-testid="video-timeline"
     onpointerdown={(e) => begin('scrub', e)}
   >
-    <div class="frames" aria-hidden="true">
-      {#each strip.length ? strip : Array(12).fill('') as url}
-        <div class="frame" style={url ? `background-image:url(${url})` : ''}></div>
-      {/each}
+    <!-- frames + dim off-cuts are clipped to the rounded track -->
+    <div class="track">
+      <div class="frames" aria-hidden="true">
+        {#each strip.length ? strip : Array(12).fill('') as url}
+          <div class="frame" style={url ? `background-image:url(${url})` : ''}></div>
+        {/each}
+      </div>
+      <div class="mask" style="width:{inPct}%"></div>
+      <div class="mask right" style="left:{outPct}%"></div>
     </div>
-    <div class="mask" style="width:{inPct}%"></div>
-    <div class="mask right" style="left:{outPct}%"></div>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="window"
@@ -74,12 +77,16 @@
       title="Drag to slide the whole clip window"
       onpointerdown={beginWindow}
     >
-      <div class="grip" aria-hidden="true"><span></span><span></span><span></span></div>
+      {#if spanPct > 12}
+        <div class="grip" aria-hidden="true"><span></span><span></span><span></span></div>
+      {/if}
     </div>
+    <!-- handles sit just OUTSIDE the window edges (in gutters at the extremes),
+         so they never cross each other even for a tiny window. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="handle in"
-      style="left:{inPct}%"
+      style="left:calc({inPct}% - 14px)"
       title="Trim start"
       onpointerdown={(e) => begin('in', e, false)}
     >
@@ -88,7 +95,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="handle out"
-      style="left:calc({outPct}% - 14px)"
+      style="left:{outPct}%"
       title="Trim end"
       onpointerdown={(e) => begin('out', e, false)}
     >
@@ -113,15 +120,23 @@
 <style>
   .timeline {
     margin-bottom: 4px;
+    /* side gutters where the in/out handles live at the extremes */
+    padding: 0 14px;
   }
   .strip {
     position: relative;
     height: 60px;
-    border-radius: 10px;
-    overflow: hidden;
+    /* overflow visible so handles can sit in the gutters; the track clips frames */
+    overflow: visible;
     touch-action: none;
     user-select: none;
     cursor: pointer;
+  }
+  .track {
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    overflow: hidden;
     background: #0a0a0a;
   }
   .frames {
