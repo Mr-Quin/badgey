@@ -101,7 +101,7 @@ function handleConnectionLost(reason: string): void {
   deviceId.set(null)
   deviceName.set(null)
   connectionLost.set(true)
-  error.set('The badge disconnected — it may have gone to sleep or moved out of range.')
+  error.set('The badge disconnected.')
   connection.set('error')
   // Release the browser's GATT handle for the dead device. Without this, the
   // browser can keep the link half-open, and the next connect to the same
