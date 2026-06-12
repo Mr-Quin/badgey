@@ -6,6 +6,7 @@
 import { writable, get, type Readable } from './observable'
 import { clampOffset, renderBadgeJpeg, renderBitmapJpeg, DEFAULT_TRANSFORM } from './editor'
 import { persistHistory, type HistoryItem } from './stores/history'
+import { getBlob } from './history'
 import { upload, deviceId, error } from './stores/badge'
 import { probeVideo } from './video/probe'
 import { frameCount, clampPlayhead } from './video/clip'
@@ -94,6 +95,8 @@ export class EditorSession {
   private badgeDeviceId: string | null = null
   /** Snapshot JPEG for video items (the badge can't be shown directly). */
   private thumbnailBlob: Blob | null = null
+  /** The original file changed and needs (re)writing to storage; cleared after one write. */
+  private blobDirty = false
 
   private dragAnchor: { x: number; y: number; px: number; py: number } | null = null
   private autosaveTimer: ReturnType<typeof setTimeout> | undefined
@@ -121,6 +124,7 @@ export class EditorSession {
     this.badgeName = null
     this.badgeDeviceId = null
     this.thumbnailBlob = null
+    this.blobDirty = true // new original to persist (once)
     // A real video is a clip immediately. An animated image (gif/webp) starts as
     // an image and upgrades to a clip only once we confirm it has >1 frame, so a
     // static gif never flickers into clip mode.
@@ -225,16 +229,23 @@ export class EditorSession {
   }
 
   /** Reopen a saved history item into the editor. */
-  restore(item: HistoryItem): void {
+  async restore(item: HistoryItem): Promise<void> {
+    // Video originals are stored separately and loaded on demand.
+    const blob = item.blob ?? (await getBlob(item.id))
+    if (!blob) {
+      error.set('That item is no longer available to re-edit.')
+      return
+    }
     if (this.s.previewUrl) URL.revokeObjectURL(this.s.previewUrl)
     this.revokeSent()
-    const file = new File([item.blob], item.name, { type: item.blob.type || 'image/png' })
+    const file = new File([blob], item.name, { type: blob.type || 'image/png' })
     this.id = item.id
     this.createdAt = item.createdAt
     this.uploaded = item.uploaded
     this.badgeName = item.badgeName ?? null
     this.badgeDeviceId = item.badgeDeviceId ?? null
     this.thumbnailBlob = item.thumbnail ?? null
+    this.blobDirty = false // already in storage under this id
     const video = item.media === 'video'
     this.commit({
       file,
@@ -540,24 +551,31 @@ export class EditorSession {
     if (!file || !this.id) return
     this.uploaded = uploaded
     const clip = this.s.clip
-    await persistHistory({
-      id: this.id,
-      name: file.name || 'image',
-      blob: file,
-      transform: this.transform(),
-      quality: this.s.quality,
-      uploaded,
-      source: this.s.source,
-      media: this.s.media,
-      clip:
-        this.s.media === 'video' && clip
-          ? { inSec: clip.inSec, outSec: clip.outSec, fps: clip.fps }
-          : undefined,
-      thumbnail: this.s.media === 'video' ? (this.thumbnailBlob ?? undefined) : undefined,
-      badgeName: this.badgeName ?? undefined,
-      badgeDeviceId: this.badgeDeviceId ?? undefined,
-      createdAt: this.createdAt || Date.now(),
-      updatedAt: Date.now(),
-    })
+    // Write the (possibly huge) original only when it actually changed; later
+    // autosaves persist metadata only.
+    const writeBlob = this.blobDirty
+    this.blobDirty = false
+    await persistHistory(
+      {
+        id: this.id,
+        name: file.name || 'image',
+        blob: file,
+        transform: this.transform(),
+        quality: this.s.quality,
+        uploaded,
+        source: this.s.source,
+        media: this.s.media,
+        clip:
+          this.s.media === 'video' && clip
+            ? { inSec: clip.inSec, outSec: clip.outSec, fps: clip.fps }
+            : undefined,
+        thumbnail: this.s.media === 'video' ? (this.thumbnailBlob ?? undefined) : undefined,
+        badgeName: this.badgeName ?? undefined,
+        badgeDeviceId: this.badgeDeviceId ?? undefined,
+        createdAt: this.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      },
+      writeBlob,
+    )
   }
 }

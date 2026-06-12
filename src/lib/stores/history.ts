@@ -17,10 +17,11 @@ async function refreshHistory(): Promise<void> {
   }
 }
 
-/** Insert/update an entry, then refresh the list. Never throws into the UI. */
-export async function persistHistory(item: HistoryItem): Promise<void> {
+/** Insert/update an entry, then refresh the list. Never throws into the UI.
+ *  `writeBlob` is false for metadata-only autosaves so large originals aren't rewritten. */
+export async function persistHistory(item: HistoryItem, writeBlob = true): Promise<void> {
   try {
-    await putItem(item)
+    await putItem(item, writeBlob)
     await refreshHistory()
   } catch {
     // ignore

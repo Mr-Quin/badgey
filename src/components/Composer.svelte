@@ -32,7 +32,7 @@
     const item = $pendingRestore
     if (!item) return
     pendingRestore.set(null)
-    session.restore(item)
+    void session.restore(item)
   })
 
   // Clipboard paste (screenshot, copied photo).
