@@ -21,8 +21,9 @@ Run `bun run check` and the tests before claiming anything works.
 - **`src/lib/` holds all business logic and has ZERO UI-framework imports — keep it that way.** This is what makes the UI swappable.
   - `observable.ts` — tiny store implementing Svelte's store contract, so `$store` works in components without importing `svelte/store`. Stores in `src/lib/stores/` use it.
   - `stores/badge.ts` — connection lifecycle (connect / upload / delete / heartbeat / disconnect) and app state.
-  - `editor-session.ts` — `EditorSession` controller owns the image-editor state and lifecycle (transform, autosave, size estimate, send, restore).
+  - `editor-session.ts` — `EditorSession` controller owns the editor state and lifecycle for images and video clips (transform, clip trim/playback, autosave, size estimate, send, restore).
   - `editor.ts` — pure crop geometry; `history.ts` — IndexedDB drafts/uploads.
+  - `video/` — clip pipeline, all browser-native (no ffmpeg): `probe.ts` (detect/measure), `frames.ts` (extract frames via `<video>` seek or `ImageDecoder`), `clip.ts` (trim/budget math), `avi.ts` (MJPEG-AVI muxer), `encode.ts` (orchestrates frames -> jpeg -> avi). Clips upload through the same path as images.
   - `badge/` — the BLE protocol core behind a `BleTransport` interface, with two implementations: `webbluetooth.ts` (real) and `fake-badge.ts` (the simulator used by `dev:fake` and e2e). **Treat this as a working black box. Do not document the wire format or add byte-level protocol comments here.**
 - **`src/components/` are thin Svelte views over the above.** Reuse the primitives (`Button`, `BadgeMark`) instead of hand-rolling styles.
 - **Styling** uses the Sakura design tokens in `src/sakura.css` (`--p-*` CSS vars) plus scoped component CSS. No Tailwind.
@@ -31,7 +32,7 @@ Run `bun run check` and the tests before claiming anything works.
 
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`, with an optional scope (e.g. `feat(editor): …`).
 - Keep this repo a clean "just an app" surface: **no reverse-engineering, protocol, or provenance details** in docs or comments.
-- e2e relies on stable `data-testid`s (`connect-button`, `upload-button`, `image-input`, `image-preview`, `free-space`, `file-row`, `file-delete`, `file-delete-confirm`, `refresh-button`, `connection-status`, `upload-progress`, `upload-success`, `size-estimate`, `history-item`, `history-restore`). Preserve/extend them. `connection-status` and `free-space` are visually-hidden hooks behind the real UI.
+- e2e relies on stable `data-testid`s (`connect-button`, `upload-button`, `image-input`, `image-preview`, `free-space`, `file-row`, `file-delete`, `file-delete-confirm`, `refresh-button`, `connection-status`, `upload-progress`, `upload-success`, `size-estimate`, `history-item`, `history-restore`, `media-type`, `video-timeline`, `fps-chip`, `frame-budget`, `play-toggle`). Preserve/extend them. `connection-status` and `free-space` are visually-hidden hooks behind the real UI.
 - Tests run against `FakeBadge` (`VITE_TRANSPORT=fake`); keep them deterministic and lean.
 - UI copy: plain and terse, no em dashes.
 

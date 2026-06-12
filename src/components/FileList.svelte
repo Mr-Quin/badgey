@@ -11,22 +11,29 @@
   const images = $derived($files.filter((f) => f.file))
 
   // Thumbnails for files uploaded via this app, matched by device + filename
-  // (filenames can collide across badges). Object URLs are revoked on change.
+  // (filenames can collide across badges). Video files use their saved snapshot,
+  // never the clip itself (an <img> can't render it). Object URLs revoked on change.
   let thumbs = $state<Record<string, string>>({})
+  let videoFiles = $state<Record<string, boolean>>({})
+  const isClip = (name: string): boolean => videoFiles[name] || /\.avi$/i.test(name)
   $effect(() => {
     const dev = $deviceId
-    const byKey = new Map<string, Blob>()
+    const byKey = new Map<string, { blob: Blob | undefined; video: boolean }>()
     for (const it of $historyItems) {
       if (it.badgeName && it.badgeDeviceId && it.badgeDeviceId === dev) {
-        byKey.set(it.badgeName, it.blob)
+        const video = it.media === 'video'
+        byKey.set(it.badgeName, { blob: video ? it.thumbnail : it.blob, video })
       }
     }
     const next: Record<string, string> = {}
+    const vids: Record<string, boolean> = {}
     for (const f of images) {
-      const blob = byKey.get(f.name)
-      if (blob) next[f.name] = URL.createObjectURL(blob)
+      const e = byKey.get(f.name)
+      if (e?.blob) next[f.name] = URL.createObjectURL(e.blob)
+      if (e?.video) vids[f.name] = true
     }
     thumbs = next
+    videoFiles = vids
     return () => {
       for (const u of Object.values(next)) URL.revokeObjectURL(u)
     }
@@ -87,6 +94,7 @@
               ></div>{/if}
           </div>
           <div class="name">{f.name}</div>
+          {#if isClip(f.name)}<span class="vchip">Clip</span>{/if}
           {#if confirming === f.name}
             <span class="ask">{busy ? 'Deleting…' : 'Delete?'}</span>
             <Button variant="ghost" size="sm" onclick={() => (confirming = null)} disabled={busy}>
@@ -188,6 +196,15 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .vchip {
+    flex: none;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--p-secondary-soft);
+    color: var(--p-secondary-ink);
   }
   .del {
     width: 30px;

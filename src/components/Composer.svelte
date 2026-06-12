@@ -3,23 +3,24 @@
   import { progress, error, info, connection } from '../lib/stores/badge'
   import { pendingRestore } from '../lib/stores/history'
   import { EditorSession } from '../lib/editor-session'
+  import { coverCrop } from '../lib/editor'
+  import { openFrameSource } from '../lib/video/frames'
   import Button from './Button.svelte'
+  import ClipControls from './ClipControls.svelte'
+  import Preview from './Preview.svelte'
 
   // All editor business logic lives in the framework-agnostic controller; this
   // component is a thin view: it renders `$editor` and forwards DOM events.
   const session = new EditorSession()
   const editor = session.state
   onDestroy(() => session.destroy())
+  let preview = $state<Preview | undefined>()
 
   // View-only derivations that combine editor state with badge stores.
   const tooBig = $derived(
     $editor.estimatedKB != null && $info != null ? $editor.estimatedKB > $info.freeKB : false,
   )
   const connected = $derived($connection === 'connected')
-  const transform = $derived(
-    `translate(${$editor.px}px, ${$editor.py}px) scale(${$editor.zoom / 100}) rotate(${$editor.rot}deg)`,
-  )
-  const caption = $derived($editor.guides ? 'showing full image' : '240 × 240')
   const pct = $derived(
     $progress && $progress.total > 0 ? Math.round(($progress.sent / $progress.total) * 100) : 0,
   )
@@ -31,16 +32,19 @@
     const item = $pendingRestore
     if (!item) return
     pendingRestore.set(null)
-    session.restore(item)
+    void session.restore(item)
   })
 
   // Clipboard paste (screenshot, copied photo).
   $effect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if ($editor.busy) return
-      const item = Array.from(e.clipboardData?.items ?? []).find(
+      const items = Array.from(e.clipboardData?.items ?? []).filter(
         (i) => i.kind === 'file' && i.type.startsWith('image/'),
       )
+      // Prefer an animation-capable representation: a clipboard often carries a
+      // static png alongside the gif/webp, and the png may come first.
+      const item = items.find((i) => i.type === 'image/gif' || i.type === 'image/webp') ?? items[0]
       const file = item?.getAsFile()
       if (file) {
         e.preventDefault()
@@ -69,30 +73,55 @@
   function onDrop(e: DragEvent) {
     e.preventDefault()
     const file = e.dataTransfer?.files?.[0]
-    if (file && file.type.startsWith('image/')) session.setFile(file)
+    if (file && (file.type.startsWith('image/') || file.type.startsWith('video/')))
+      session.setFile(file)
   }
-  function onPointerDown(e: PointerEvent) {
-    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
-    session.beginDrag(e.clientX, e.clientY)
-  }
-  function onPointerMove(e: PointerEvent) {
-    session.drag(e.clientX, e.clientY)
-  }
-  function onWheel(e: WheelEvent) {
-    e.preventDefault()
-    session.zoomBy(-e.deltaY * 0.12)
-  }
-  function onKeyDown(e: KeyboardEvent) {
-    const step = e.shiftKey ? 20 : 5
-    let handled = true
-    if (e.key === 'ArrowLeft') session.nudge(-step, 0)
-    else if (e.key === 'ArrowRight') session.nudge(step, 0)
-    else if (e.key === 'ArrowUp') session.nudge(0, -step)
-    else if (e.key === 'ArrowDown') session.nudge(0, step)
-    else if (e.key === '+' || e.key === '=') session.zoomBy(5)
-    else if (e.key === '-') session.zoomBy(-5)
-    else handled = false
-    if (handled) e.preventDefault()
+  // ── media-type derivations + filmstrip thumbnails ────────────────
+  const isVideo = $derived($editor.media === 'video')
+  const freeKB = $derived($info ? $info.freeKB : null)
+  const durLabel = $derived($editor.clip ? `${$editor.clip.duration.toFixed(1)}s` : '')
+
+  // Filmstrip thumbnails, regenerated once per video file.
+  let strip = $state<string[]>([])
+  let stripFor: File | null = null
+  $effect(() => {
+    const s = $editor
+    if (s.media === 'video' && s.file && s.file !== stripFor) {
+      stripFor = s.file
+      strip = []
+      void buildStrip(s.file)
+    } else if (s.media !== 'video' && stripFor) {
+      stripFor = null
+      strip = []
+    }
+  })
+
+  async function buildStrip(file: File): Promise<void> {
+    try {
+      const src = await openFrameSource(file)
+      try {
+        const dur = src.duration || 1
+        const N = 12
+        const c = document.createElement('canvas')
+        c.width = 48
+        c.height = 60
+        const ctx = c.getContext('2d')
+        if (!ctx) return
+        const urls: string[] = []
+        for (let i = 0; i < N; i++) {
+          const bmp = await src.frameAt(((i + 0.5) / N) * dur)
+          const { sx, sy, sw, sh } = coverCrop(bmp.width, bmp.height, 48, 60)
+          ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, 48, 60)
+          bmp.close()
+          urls.push(c.toDataURL('image/jpeg', 0.6))
+        }
+        if (stripFor === file) strip = urls
+      } finally {
+        src.close()
+      }
+    } catch {
+      // leave the neutral track if the source can't be sampled
+    }
   }
 </script>
 
@@ -101,9 +130,14 @@
     <h3>Edit &amp; send</h3>
     {#if $editor.file}
       <span class="saved">Draft saved</span>
+      {#if isVideo}
+        <span class="pill video" data-testid="media-type">Video clip · {durLabel}</span>
+      {:else}
+        <span class="pill" data-testid="media-type">Still image</span>
+      {/if}
       <label class="replace">
         Replace
-        <input class="sr-only" type="file" accept="image/*" onchange={onInput} />
+        <input class="sr-only" type="file" accept="image/*,video/*" onchange={onInput} />
       </label>
     {/if}
   </div>
@@ -123,65 +157,34 @@
           stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg
         >
       </div>
-      <div class="dz-title">Drop an image here</div>
-      <div class="dz-sub">click to browse, or paste from clipboard · JPG, PNG, GIF</div>
+      <div class="dz-title">Drop an image or video clip here</div>
+      <div class="dz-sub">
+        click to browse, or paste from clipboard · JPG, PNG, GIF, MP4, MOV, WebM
+      </div>
       <input
         class="sr-only"
         data-testid="image-input"
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         onchange={onInput}
       />
     </label>
   {:else}
     <!-- editor stage -->
-    <div class="stage-wrap">
-      <!-- Drag canvas: pointer + keyboard driven; the Size/Rotate/Fit/Reset
-           controls below provide an accessible equivalent for every action. -->
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-      <div
-        class="stage"
-        role="application"
-        aria-label="Reposition and resize image. Drag, or use arrow keys to move and +/- to zoom."
-        tabindex="0"
-        style="cursor: {$editor.dragging ? 'grabbing' : 'grab'}"
-        onpointerdown={onPointerDown}
-        onpointermove={onPointerMove}
-        onpointerup={() => session.endDrag()}
-        onwheel={onWheel}
-        onkeydown={onKeyDown}
-      >
-        <!-- ghost: full image, dimmed, revealed while editing -->
-        <div class="ghost" style="opacity: {$editor.guides ? 0.34 : 0}">
-          {#if $editor.previewUrl}<img
-              src={$editor.previewUrl}
-              alt=""
-              style="transform: {transform}"
-            />{/if}
-        </div>
-        <!-- bright circle crop -->
-        <div class="circle">
-          {#if $editor.previewUrl}
-            <img
-              data-testid="image-preview"
-              src={$editor.previewUrl}
-              alt="Badge preview"
-              style="transform: {transform}"
-            />
-          {/if}
-          <div class="grid" style="opacity: {$editor.guides ? 1 : 0}" aria-hidden="true">
-            <span class="v1"></span><span class="v2"></span><span class="h1"></span><span class="h2"
-            ></span>
-            <span class="ring"></span>
-          </div>
-        </div>
-        <div class="caption">{caption}</div>
-      </div>
-      <div class="hint">Drag to reposition · scroll or slider to resize</div>
-    </div>
+    <Preview {session} bind:this={preview} />
 
     <!-- controls -->
     <div class="controls">
+      {#if isVideo && $editor.clip}
+        <ClipControls
+          {session}
+          clip={$editor.clip}
+          {strip}
+          estimatedKB={$editor.estimatedKB}
+          {freeKB}
+          onGrab={() => preview?.grab()}
+        />
+      {/if}
       <div class="row-label">
         <span>Size</span><span class="mono">{Math.round($editor.zoom)}%</span>
       </div>
@@ -196,6 +199,7 @@
           aria-label="Size"
         />
         <span class="pm plus">+</span>
+        <Button variant="ghost" size="sm" onclick={() => session.fit()}>Fit</Button>
       </div>
       <div class="row-label spaced">
         <span>Rotation</span><span class="mono">{Math.round($editor.rot)}°</span>
@@ -219,13 +223,10 @@
         >
       </div>
 
-      <div class="btns spaced-top">
-        <Button variant="ghost" block onclick={() => session.fit()}>Fit</Button>
-        <Button variant="ghost" block onclick={() => session.reset()}>Reset all</Button>
-      </div>
-
       <div class="row-label spaced">
-        <span>Quality</span><span class="mono">{Math.round($editor.quality * 100)}%</span>
+        <span>{isVideo ? 'Frame quality' : 'Quality'}</span><span class="mono"
+          >{Math.round($editor.quality * 100)}%</span
+        >
       </div>
       <input
         data-testid="quality-slider"
@@ -239,7 +240,9 @@
         style="width: 100%"
       />
       <div class="ends">
-        <span class="meta">Smaller file</span><span class="meta">Best detail</span>
+        <span class="meta">{isVideo ? 'Smaller clip' : 'Smaller file'}</span><span class="meta"
+          >Best detail</span
+        >
       </div>
 
       <div class="estimate" class:over={tooBig} data-testid="size-estimate">
@@ -256,17 +259,32 @@
         <p class="err">{$error}</p>
       {/if}
 
-      <div class="send-wrap">
+      <div class="send-wrap send-row">
+        <div class="send-grow">
+          <Button
+            variant="primary"
+            size="lg"
+            block
+            data-testid="upload-button"
+            onclick={() => session.send()}
+            disabled={$editor.busy || tooBig || !connected}
+          >
+            {$editor.busy
+              ? 'Sending…'
+              : tooBig
+                ? "Won't fit, lower the quality"
+                : isVideo
+                  ? 'Send clip to badge'
+                  : 'Send to badge'}
+          </Button>
+        </div>
         <Button
-          variant="primary"
+          variant="ghost"
           size="lg"
-          block
-          data-testid="upload-button"
-          onclick={() => session.send()}
-          disabled={$editor.busy || tooBig || !connected}
+          title="Reset all edits"
+          onclick={() => session.reset()}
+          disabled={$editor.busy}>Reset</Button
         >
-          {$editor.busy ? 'Sending…' : tooBig ? "Won't fit, lower the quality" : 'Send to badge'}
-        </Button>
       </div>
       {#if !connected}
         <p class="gate-hint">Connect a badge to send. Your edits are saved as a draft.</p>
@@ -274,8 +292,26 @@
     </div>
   {/if}
 
-  <!-- uploading overlay -->
-  {#if $editor.busy && $progress}
+  <!-- preparing (video encode) / uploading overlay -->
+  {#if $editor.preparing != null}
+    {@const ppct = Math.round($editor.preparing * 100)}
+    <div class="overlay" data-testid="upload-progress">
+      <div class="sheet">
+        <div
+          class="ring-prog"
+          style="background: conic-gradient(var(--p-primary) {ppct * 3.6}deg, var(--p-paper-alt) 0)"
+        >
+          <div class="ring-hole">{ppct}%</div>
+        </div>
+        <div class="sheet-title">Preparing clip…</div>
+        <div class="sheet-sub mono">Encoding frames</div>
+        <div class="warn">
+          <span>⚠</span>
+          <div>Keep this tab open and the badge awake.</div>
+        </div>
+      </div>
+    </div>
+  {:else if $editor.busy && $progress}
     <div class="overlay" data-testid="upload-progress">
       <div class="sheet">
         <div
@@ -284,7 +320,7 @@
         >
           <div class="ring-hole">{pct}%</div>
         </div>
-        <div class="sheet-title">Sending to badge…</div>
+        <div class="sheet-title">{isVideo ? 'Sending clip…' : 'Sending to badge…'}</div>
         <div class="sheet-sub mono">{sentKB} KB / {totalKB} KB</div>
         <div class="warn">
           <span>⚠</span>
@@ -304,7 +340,9 @@
           </div>
           <div class="check">✓</div>
         </div>
-        <div class="sheet-title big">It's on your badge!</div>
+        <div class="sheet-title big">
+          {isVideo ? 'Your clip is on the badge!' : "It's on your badge!"}
+        </div>
         <div class="sheet-sub">Saved to your badge.</div>
         <div class="send-wrap">
           <Button variant="primary" size="lg" block onclick={() => session.finish()}>Done</Button>
@@ -320,7 +358,7 @@
     border: 1px solid var(--p-divider);
     border-radius: 16px;
     background: var(--p-paper);
-    padding: 22px 24px 24px;
+    padding: 20px 14px 22px;
   }
   .head {
     display: flex;
@@ -360,6 +398,22 @@
   }
   .replace:hover {
     background: var(--p-action-hover);
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--p-text-muted);
+    background: var(--p-paper-alt);
+    padding: 4px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.video {
+    color: var(--p-secondary-ink);
+    background: var(--p-secondary-soft);
   }
 
   /* drop zone */
@@ -405,118 +459,9 @@
     color: var(--p-text-muted);
   }
 
-  /* editor stage */
-  .stage-wrap {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .stage {
-    position: relative;
-    width: 320px;
-    height: 320px;
-    max-width: 100%;
-    touch-action: none;
-    user-select: none;
-  }
-  .ghost {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    border-radius: 16px;
-    transition: opacity 0.15s;
-    pointer-events: none;
-  }
-  .ghost img,
-  .circle img {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 320px;
-    height: 320px;
-    margin: -160px 0 0 -160px;
-    object-fit: cover;
-    transform-origin: center;
-    pointer-events: none;
-  }
-  .circle {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 240px;
-    height: 240px;
-    margin: -120px 0 0 -120px;
-    border-radius: 50%;
-    overflow: hidden;
-    background: #0a0a0a;
-    box-shadow:
-      inset 0 0 0 3px rgba(0, 0, 0, 0.4),
-      0 0 0 8px var(--p-paper-alt);
-  }
-  .grid {
-    position: absolute;
-    inset: 0;
-    transition: opacity 0.15s;
-    pointer-events: none;
-  }
-  .grid span {
-    position: absolute;
-    background: rgba(255, 255, 255, 0.45);
-  }
-  .grid .v1 {
-    left: 33.33%;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-  }
-  .grid .v2 {
-    left: 66.66%;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-  }
-  .grid .h1 {
-    top: 33.33%;
-    left: 0;
-    right: 0;
-    height: 1px;
-  }
-  .grid .h2 {
-    top: 66.66%;
-    left: 0;
-    right: 0;
-    height: 1px;
-  }
-  .grid .ring {
-    inset: 0;
-    background: transparent;
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
-  }
-  .caption {
-    position: absolute;
-    bottom: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.55);
-    color: #fff;
-    font-size: 10px;
-    padding: 2px 9px;
-    border-radius: 999px;
-    font-family: var(--p-mono);
-    pointer-events: none;
-    white-space: nowrap;
-  }
-  .hint {
-    font-size: 11px;
-    color: var(--p-text-muted);
-    margin-top: 10px;
-    text-align: center;
-  }
-
-  /* controls */
+  /* controls span the full card width */
   .controls {
-    max-width: 380px;
+    width: 100%;
     margin: 18px auto 0;
   }
   .row-label {
@@ -565,15 +510,6 @@
     height: 16px;
     cursor: pointer;
   }
-  .btns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 14px;
-  }
-  .btns.spaced-top {
-    margin-top: 8px;
-  }
   .gate-hint {
     margin-top: 10px;
     font-size: 11.5px;
@@ -606,6 +542,14 @@
   }
   .send-wrap {
     margin-top: 22px;
+  }
+  .send-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .send-grow {
+    flex: 1;
   }
 
   /* overlays */
