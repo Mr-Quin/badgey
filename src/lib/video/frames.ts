@@ -11,7 +11,7 @@ export interface FrameSource {
 }
 
 export async function openFrameSource(file: File): Promise<FrameSource> {
-  if (file.type === 'image/gif' || /\.(gif|webp)$/i.test(file.name) || file.type === 'image/webp') {
+  if (isAnimatedImageType(file)) {
     const viaDecoder = await tryImageDecoder(file)
     if (viaDecoder) return viaDecoder
   }
@@ -28,9 +28,13 @@ function openVideoSeeker(file: File): Promise<FrameSource> {
       resolve({
         duration: v.duration || 0,
         frameAt(t: number): Promise<ImageBitmap> {
+          const target = Math.max(0, Math.min((v.duration || 0) - 1e-3, t))
+          // Assigning currentTime its current value fires no 'seeked' event, so
+          // resolve immediately when no seek is needed (e.g. the first frame at 0).
+          if (Math.abs(v.currentTime - target) < 1e-3) return createImageBitmap(v)
           return new Promise((res) => {
             v.onseeked = () => res(createImageBitmap(v))
-            v.currentTime = Math.max(0, Math.min((v.duration || 0) - 1e-3, t))
+            v.currentTime = target
           })
         },
         close() {
@@ -158,13 +162,35 @@ export async function decodeAnimatedFrames(file: File): Promise<AnimatedFrames |
   }
 }
 
-/** Lightweight metadata probe for an animated image: duration + frame count. */
+/** Lightweight metadata probe for an animated image: duration + frame count.
+ *  Reads per-frame durations without materializing (and discarding) bitmaps. */
 export async function probeAnimatedImage(
   file: File,
 ): Promise<{ duration: number; frames: number } | null> {
-  const a = await decodeAnimatedFrames(file)
-  if (!a) return null
-  const meta = { duration: a.duration, frames: a.bitmaps.length }
-  a.bitmaps.forEach((b) => b.close())
-  return meta
+  const Ctor = (globalThis as { ImageDecoder?: ImageDecoderCtor }).ImageDecoder
+  if (!Ctor) return null
+  let dec: ImageDecoderLike
+  try {
+    dec = new Ctor({ data: await file.arrayBuffer(), type: file.type || 'image/gif' })
+    await dec.completed
+    await dec.tracks.ready
+  } catch {
+    return null
+  }
+  const count = dec.tracks.selectedTrack?.frameCount ?? 1
+  if (count <= 1) {
+    dec.close()
+    return null
+  }
+  let durUs = 0
+  try {
+    for (let i = 0; i < count; i++) {
+      const { image } = await dec.decode({ frameIndex: i })
+      durUs += image.duration ?? 100000
+      image.close()
+    }
+  } finally {
+    dec.close()
+  }
+  return { duration: durUs / 1e6, frames: count }
 }

@@ -6,7 +6,8 @@
  */
 export const STAGE = 320
 export const CIRCLE = 240
-const OUT = 240
+/** Badge output size in px (square); the uploaded JPEG / each video frame. */
+export const OUT = 240
 
 export interface Transform {
   px: number

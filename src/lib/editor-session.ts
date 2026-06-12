@@ -97,6 +97,8 @@ export class EditorSession {
   private thumbnailBlob: Blob | null = null
   /** The original file changed and needs (re)writing to storage; cleared after one write. */
   private blobDirty = false
+  /** Bumped each schedule(); a stale async estimate checks it before committing. */
+  private estimateSeq = 0
 
   private dragAnchor: { x: number; y: number; px: number; py: number } | null = null
   private autosaveTimer: ReturnType<typeof setTimeout> | undefined
@@ -245,7 +247,9 @@ export class EditorSession {
     this.badgeName = item.badgeName ?? null
     this.badgeDeviceId = item.badgeDeviceId ?? null
     this.thumbnailBlob = item.thumbnail ?? null
-    this.blobDirty = false // already in storage under this id
+    // If the original came inline (not from the dedicated blob store), it still
+    // needs writing there; if it was loaded via getBlob it's already stored.
+    this.blobDirty = item.blob != null
     const video = item.media === 'video'
     this.commit({
       file,
@@ -521,9 +525,11 @@ export class EditorSession {
       this.commit({ estimatedKB: null })
       return
     }
+    const seq = ++this.estimateSeq
     this.estimateTimer = setTimeout(async () => {
       try {
         const clip = this.s.clip
+        let kb: number
         if (this.s.media === 'video' && clip) {
           // Encode one mid-clip frame and scale by the frame count, rather than
           // encoding the whole clip on every edit.
@@ -532,16 +538,17 @@ export class EditorSession {
             const bmp = await src.frameAt((clip.inSec + clip.outSec) / 2)
             const one = await renderBitmapJpeg(bmp, this.transform(), this.s.quality)
             bmp.close()
-            this.commit({ estimatedKB: Math.max(1, Math.round((one.length * clip.frames) / 1024)) })
+            kb = Math.max(1, Math.round((one.length * clip.frames) / 1024))
           } finally {
             src.close()
           }
         } else {
           const bytes = await renderBadgeJpeg(file, this.transform(), this.s.quality)
-          this.commit({ estimatedKB: Math.max(1, Math.round(bytes.length / 1024)) })
+          kb = Math.max(1, Math.round(bytes.length / 1024))
         }
+        if (seq === this.estimateSeq) this.commit({ estimatedKB: kb })
       } catch {
-        this.commit({ estimatedKB: null })
+        if (seq === this.estimateSeq) this.commit({ estimatedKB: null })
       }
     }, ESTIMATE_MS)
     this.autosaveTimer = setTimeout(() => void this.persist(this.uploaded), AUTOSAVE_MS)

@@ -3,7 +3,11 @@
   import type { EditorSession } from '../lib/editor-session'
   import { get } from '../lib/observable'
   import { coverCrop, STAGE, CIRCLE } from '../lib/editor'
-  import { decodeAnimatedFrames, type AnimatedFrames } from '../lib/video/frames'
+  import {
+    decodeAnimatedFrames,
+    isAnimatedImageType,
+    type AnimatedFrames,
+  } from '../lib/video/frames'
 
   // The interactive editor stage: a round preview painted from the user's image,
   // a video, or decoded gif/webp frames, driven by pointer/keyboard/touch input.
@@ -49,8 +53,7 @@
   $effect(() => {
     const s = $editor
     const f = s.file
-    const anim =
-      !!f && (f.type === 'image/gif' || f.type === 'image/webp' || /\.(gif|webp)$/i.test(f.name))
+    const anim = !!f && isAnimatedImageType(f)
     if (s.media === 'video' && anim && f && f !== gifFor) {
       gifFor = f
       closeGif()
@@ -123,7 +126,11 @@
                   session.pause()
                 }
               }
-              session.scrub(v.currentTime)
+              // Sync the playhead only on a frame step, not every rAF, to avoid a
+              // store commit (and full reactive re-eval) ~60x/sec during playback.
+              if (Math.floor((v.currentTime - clip.inSec) * clip.fps) !== lastFrame) {
+                session.scrub(v.currentTime)
+              }
             } else {
               if (!v.paused) v.pause()
               if (Math.abs(v.currentTime - clip.playhead) > 0.02) v.currentTime = clip.playhead
